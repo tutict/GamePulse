@@ -1,12 +1,41 @@
+# Dependencies
 node_modules/
-dist/
-coverage/
-.env
-.env.local
-.DS_Store
-npm-debug.log*
-*.tsbuildinfo
-uploads/
 
+# Build output
+dist/
+out/
+build/
+coverage/
+*.tsbuildinfo
+
+# Electron desktop output
 apps/desktop/out/
 apps/desktop/release/
+release/
+
+# Local environment
+.env
+.env.*
+!.env.example
+uploads/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Editor and IDE state
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

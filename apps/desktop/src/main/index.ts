@@ -1,5 +1,8 @@
 import { join } from "node:path";
 import { app, BrowserWindow, shell } from "electron";
+import { registerCollectorHandlers } from "./collector.js";
+import { initializeDesktopDatabase, registerDatabaseHandlers } from "./database.js";
+import { registerRagHandlers } from "./rag.js";
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 
@@ -32,6 +35,10 @@ function createMainWindow(): void {
 }
 
 app.whenReady().then(() => {
+  initializeDesktopDatabase();
+  registerCollectorHandlers();
+  registerDatabaseHandlers();
+  registerRagHandlers();
   createMainWindow();
 
   app.on("activate", () => {
