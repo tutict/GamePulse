@@ -8,3 +8,5 @@ npm-debug.log*
 *.tsbuildinfo
 uploads/
 
+apps/desktop/out/
+apps/desktop/release/
