@@ -13,6 +13,8 @@
     "desktop:dev": "npm run build -w @gamepulse/shared && npm run dev -w @gamepulse/desktop",
     "desktop:dist": "npm run build -w @gamepulse/shared && npm run dist -w @gamepulse/desktop",
     "dev": "npm run build -w @gamepulse/shared && concurrently -n api,worker,web \"npm run dev -w @gamepulse/api\" \"npm run worker -w @gamepulse/api\" \"npm run dev -w @gamepulse/web\"",
+    "debug:start": "powershell -ExecutionPolicy Bypass -File scripts/start-debug.ps1",
+    "debug:start:desktop": "powershell -ExecutionPolicy Bypass -File scripts/start-debug.ps1 -Mode desktop",
     "db:migrate": "npm run db:migrate -w @gamepulse/api",
     "test": "npm run build -w @gamepulse/shared && vitest run",
     "test:unit": "npm run test",
