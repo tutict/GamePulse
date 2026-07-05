@@ -5,6 +5,7 @@ import {
   Database,
   FileText,
   Flame,
+  Loader2,
   Play,
   RefreshCcw,
   Search,
@@ -12,7 +13,8 @@ import {
   ShieldCheck,
   UploadCloud
 } from "lucide-react";
-import { PLATFORM_LABELS, PLATFORMS, type IngestItem, type Platform, type Project, type Report } from "@gamepulse/shared";
+import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Textarea, cn } from "@gamepulse/ui";
+import { PLATFORM_LABELS, PLATFORMS, type IngestItem, type Project, type Report } from "@gamepulse/shared";
 import {
   createProject,
   getHealth,
@@ -26,11 +28,12 @@ import {
 } from "./lib/api.js";
 
 type ApiState = "checking" | "online" | "offline";
+type SearchResult = Awaited<ReturnType<typeof searchComments>>["comments"][number];
 
 const sampleRows: IngestItem[] = [
   {
     platform: "bilibili",
-    body: "æ–°ç‰ˆæœ¬å‰§æƒ…ä¸é”™ï¼Œä½†æ‰‹æœºç«¯æ‰“æ´»åŠ¨æ‰å¸§å¤ªæ˜æ˜¾ï¼Œå¸Œæœ›å°½å¿«ä¼˜åŒ–ã€‚",
+    body: "ĞÂ°æ±¾¾çÇé²»²î£¬µ«ÊÖ»ú¶Ë»î¶¯µôÖ¡Ã÷ÏÔ£¬Ï£Íû¾¡¿ìÓÅ»¯¡£",
     sourceUrl: "https://www.bilibili.com/",
     upvotes: 42
   },
@@ -42,10 +45,18 @@ const sampleRows: IngestItem[] = [
   },
   {
     platform: "taptap",
-    body: "é•œæµè¿™æ¬¡å¼ºåº¦æ„Ÿè§‰è¢«å‰Šè¿‡å¤´äº†ï¼ŒæŠ½äº†å¾ˆéš¾å—ã€‚",
+    body: "ĞÇ¼ûÑÅÕâ´ÎÇ¿¶È¸Ğ¾õ±»Ï÷¹ıÍ·ÁË£¬³éÁËºÜÄÑÊÜ¡£",
     sourceUrl: "https://www.taptap.cn/",
     upvotes: 28
   }
+];
+
+const navItems = [
+  { href: "#project", label: "ÏîÄ¿", icon: Settings2 },
+  { href: "#import", label: "µ¼Èë", icon: UploadCloud },
+  { href: "#analysis", label: "·ÖÎö", icon: Play },
+  { href: "#reports", label: "±¨¸æ", icon: FileText },
+  { href: "#evidence", label: "Ö¤¾İ", icon: Search }
 ];
 
 export function App() {
@@ -57,8 +68,11 @@ export function App() {
   const [runId, setRunId] = useState("");
   const [runStatus, setRunStatus] = useState("");
   const [notice, setNotice] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
+  const [isRunningAnalysis, setIsRunningAnalysis] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<Awaited<ReturnType<typeof searchComments>>["comments"]>([]);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
   const activeReport = reports.find((report) => report.id === activeReportId) ?? reports[0];
@@ -69,6 +83,8 @@ export function App() {
 
   useEffect(() => {
     if (!selectedProjectId) {
+      setReports([]);
+      setActiveReportId("");
       return;
     }
 
@@ -82,10 +98,11 @@ export function App() {
 
     const handle = window.setInterval(() => {
       void getRun(runId).then((run) => {
-        setRunStatus(`${run.status} Â· ${run.progress.stage} Â· ${run.progress.processed}/${run.progress.total}`);
+        setRunStatus(`${formatRunStatus(run.status)} / ${run.progress.stage} / ${run.progress.processed}/${run.progress.total}`);
 
         if (run.status === "completed" || run.status === "failed") {
           window.clearInterval(handle);
+          setIsRunningAnalysis(false);
           void refreshReports(run.projectId);
         }
       });
@@ -103,7 +120,7 @@ export function App() {
       setSelectedProjectId(nextProjects[0]?.id ?? "");
     } catch (error) {
       setApiState("offline");
-      setNotice(error instanceof Error ? error.message : "API offline");
+      setNotice(error instanceof Error ? error.message : "±¾µØ API Î´Á¬½Ó");
     }
   }
 
@@ -132,8 +149,9 @@ export function App() {
             .filter(Boolean)
         };
       });
+
     const project = await createProject({
-      name: String(form.get("name") || "æœªå‘½åæ¸¸æˆ"),
+      name: String(form.get("name") || "Î´ÃüÃûÓÎÏ·"),
       description: String(form.get("description") || ""),
       steamAppId: String(form.get("steamAppId") || ""),
       redditSubreddits: splitList(String(form.get("redditSubreddits") || "")),
@@ -141,7 +159,7 @@ export function App() {
       versionWindows: [
         {
           id: crypto.randomUUID(),
-          name: String(form.get("versionName") || "å½“å‰ç‰ˆæœ¬"),
+          name: String(form.get("versionName") || "µ±Ç°°æ±¾"),
           releasedAt: new Date(`${releaseDate}T00:00:00.000Z`).toISOString(),
           beforeDays: 14,
           afterDays: 14
@@ -153,7 +171,7 @@ export function App() {
     const nextProjects = await listProjects();
     setProjects(nextProjects);
     setSelectedProjectId(project.id);
-    setNotice(`å·²åˆ›å»ºé¡¹ç›®ï¼š${project.name}`);
+    setNotice(`ÒÑ´´½¨ÏîÄ¿£º${project.name}`);
   }
 
   async function handleSampleImport() {
@@ -161,8 +179,13 @@ export function App() {
       return;
     }
 
-    const result = await importRows(selectedProject.id, sampleRows);
-    setNotice(`æ ·ä¾‹å¯¼å…¥å®Œæˆï¼šè§£æ ${result.parsed}ï¼Œæ–°å¢ ${result.inserted}`);
+    setIsImporting(true);
+    try {
+      const result = await importRows(selectedProject.id, sampleRows);
+      setNotice(`ÑùÀıµ¼ÈëÍê³É£º½âÎö ${result.parsed} Ìõ£¬ĞÂÔö ${result.inserted} Ìõ¡£`);
+    } finally {
+      setIsImporting(false);
+    }
   }
 
   async function handleFileImport(event: React.ChangeEvent<HTMLInputElement>) {
@@ -172,8 +195,14 @@ export function App() {
       return;
     }
 
-    const result = await uploadImport(selectedProject.id, file);
-    setNotice(`æ–‡ä»¶å¯¼å…¥å®Œæˆï¼šè§£æ ${result.parsed}ï¼Œæ–°å¢ ${result.inserted}`);
+    setIsImporting(true);
+    try {
+      const result = await uploadImport(selectedProject.id, file);
+      setNotice(`ÎÄ¼şµ¼ÈëÍê³É£º½âÎö ${result.parsed} Ìõ£¬ĞÂÔö ${result.inserted} Ìõ¡£`);
+    } finally {
+      setIsImporting(false);
+      event.target.value = "";
+    }
   }
 
   async function handleRunAnalysis() {
@@ -181,13 +210,14 @@ export function App() {
       return;
     }
 
+    setIsRunningAnalysis(true);
     const response = await runAnalysis({
       projectId: selectedProject.id,
       versionWindowId: selectedProject.versionWindows[0]?.id
     });
     setRunId(response.runId);
-    setRunStatus(`${response.mode} Â· ${response.runId}`);
-    setNotice("åˆ†æä»»åŠ¡å·²å¯åŠ¨");
+    setRunStatus(`${response.mode} / ${response.runId}`);
+    setNotice("·ÖÎöÈÎÎñÒÑÆô¶¯£¬±¨¸æÉú³Éºó»á×Ô¶¯Ë¢ĞÂ¡£");
   }
 
   async function handleSearch() {
@@ -195,88 +225,103 @@ export function App() {
       return;
     }
 
-    const payload = await searchComments({ projectId: selectedProject.id, q: searchQuery });
-    setSearchResults(payload.comments);
+    setIsSearching(true);
+    try {
+      const payload = await searchComments({ projectId: selectedProject.id, q: searchQuery });
+      setSearchResults(payload.comments);
+    } finally {
+      setIsSearching(false);
+    }
   }
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <Activity size={28} />
-          <div>
-            <strong>GamePulse</strong>
-            <span>æœ¬åœ°èˆ†æƒ…å·¥ä½œå°</span>
+    <div className="min-h-screen bg-background text-foreground">
+      <div className="grid min-h-screen grid-cols-[264px_minmax(0,1fr)] max-lg:grid-cols-1">
+        <aside className="sticky top-0 flex h-screen flex-col gap-8 border-r border-border bg-primary px-5 py-6 text-primary-foreground max-lg:static max-lg:h-auto">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 place-items-center rounded-md bg-accent text-accent-foreground">
+              <Activity className="size-5" />
+            </div>
+            <div>
+              <strong className="block text-lg leading-none">ÓÎÂö GamePulse</strong>
+              <span className="mt-1 block text-xs text-primary-foreground/62">±¾µØÓÎÏ·ÓßÇé¹¤×÷Ì¨</span>
+            </div>
           </div>
-        </div>
 
-        <nav className="nav">
-          <a href="#project"><Settings2 size={18} />é¡¹ç›®</a>
-          <a href="#import"><UploadCloud size={18} />å¯¼å…¥</a>
-          <a href="#analysis"><Play size={18} />åˆ†æ</a>
-          <a href="#reports"><FileText size={18} />æŠ¥å‘Š</a>
-          <a href="#evidence"><Search size={18} />è¯æ®</a>
-        </nav>
+          <nav className="grid gap-1" aria-label="Ö÷µ¼º½">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <a
+                  className="inline-flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-semibold text-primary-foreground/78 transition-colors hover:bg-white/8 hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  href={item.href}
+                  key={item.href}
+                >
+                  <Icon className="size-4" />
+                  {item.label}
+                </a>
+              );
+            })}
+          </nav>
 
-        <div className="source-list">
-          <span>å¹³å°å…¥å£</span>
-          {PLATFORMS.filter((platform) => platform !== "import").map((platform) => (
-            <em key={platform}>{PLATFORM_LABELS[platform]}</em>
-          ))}
-        </div>
-      </aside>
-
-      <main className="workspace">
-        <header className="topbar">
-          <div>
-            <p>è¿è¥+åˆ¶ä½œå›¢é˜Ÿ</p>
-            <h1>ç‰ˆæœ¬èˆ†æƒ…ã€BUG èšç±»å’Œæµå¤±é£é™©</h1>
+          <div className="mt-auto rounded-md border border-white/10 bg-white/6 p-4">
+            <span className="text-xs font-semibold uppercase tracking-normal text-primary-foreground/56">Æ½Ì¨Èë¿Ú</span>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {PLATFORMS.filter((platform) => platform !== "import").map((platform) => (
+                <Badge className="border-white/10 bg-white/8 text-primary-foreground hover:bg-white/12" key={platform} variant="outline">
+                  {PLATFORM_LABELS[platform]}
+                </Badge>
+              ))}
+            </div>
           </div>
-          <StatusPill state={apiState} />
-        </header>
+        </aside>
 
-        {notice ? <div className="notice">{notice}</div> : null}
+        <main className="min-w-0 px-8 py-8 max-sm:px-4">
+          <header className="flex items-start justify-between gap-6 max-md:flex-col">
+            <div className="max-w-4xl">
+              <p className="mb-3 text-sm font-semibold text-muted-foreground">ÔËÓªÓëÖÆ×÷ÍÅ¶ÓµÄ°æ±¾ÓßÇéÀ×´ï</p>
+              <h1 className="text-balance text-4xl font-semibold leading-tight text-foreground max-sm:text-3xl">
+                ¿çÆ½Ì¨ÊÕ¼¯Íæ¼Ò·´À¡£¬¶¨Î»¸ßÆµ±§Ô¹¡¢BUG ¾ÛÀàÓëÁ÷Ê§·çÏÕ¡£
+              </h1>
+            </div>
+            <StatusPill state={apiState} />
+          </header>
 
-        <div className="layout">
-          <section className="primary">
-            <ProjectSection projects={projects} selectedProjectId={selectedProjectId} onSelect={setSelectedProjectId} onCreate={handleCreateProject} />
+          {notice ? (
+            <div className="mt-6 flex items-start gap-3 rounded-md border border-accent bg-accent/35 px-4 py-3 text-sm text-accent-foreground">
+              <ShieldCheck className="mt-0.5 size-4 shrink-0" />
+              <span>{notice}</span>
+            </div>
+          ) : null}
 
-            <section className="panel" id="import">
-              <PanelTitle icon={<Database size={18} />} title="æ•°æ®å¯¼å…¥" meta="CSV/JSONã€å¤§æ–‡ä»¶å¯¼å…¥ã€å½“å‰é¡µè„šæœ¬é‡‡é›†å…œåº•" />
-              <div className="action-row">
-                <button type="button" onClick={handleSampleImport} disabled={!selectedProject}>
-                  <UploadCloud size={17} />å¯¼å…¥æ ·ä¾‹
-                </button>
-                <label className="file-button">
-                  <UploadCloud size={17} />ä¸Šä¼  CSV/JSON
-                  <input type="file" accept=".csv,.json" onChange={handleFileImport} />
-                </label>
-              </div>
-              <p className="hint">æ²¹çŒ´è„šæœ¬æäº¤åˆ° <code>/api/ingest/batch</code>ï¼›ä½œè€…å­—æ®µé»˜è®¤è„±æ•ï¼ŒåŸæ–‡å’Œæ¥æºé“¾æ¥ä¿ç•™ç”¨äºè¯æ®å›æº¯ã€‚</p>
+          <div className="mt-8 grid grid-cols-[minmax(0,1.35fr)_minmax(360px,0.85fr)] gap-6 max-xl:grid-cols-1">
+            <section className="grid min-w-0 gap-6">
+              <ProjectSection projects={projects} selectedProjectId={selectedProjectId} onSelect={setSelectedProjectId} onCreate={handleCreateProject} />
+              <ImportSection disabled={!selectedProject || isImporting} isImporting={isImporting} onFileImport={handleFileImport} onSampleImport={handleSampleImport} />
+              <AnalysisSection
+                disabled={!selectedProject || isRunningAnalysis}
+                isRunning={isRunningAnalysis}
+                onRefresh={() => selectedProject && void refreshReports(selectedProject.id)}
+                onRun={handleRunAnalysis}
+                runStatus={runStatus}
+              />
+              <ReportsSection reports={reports} activeReportId={activeReport?.id ?? ""} onSelect={setActiveReportId} />
             </section>
 
-            <section className="panel" id="analysis">
-              <PanelTitle icon={<Play size={18} />} title="åˆ†æä»»åŠ¡" meta="åˆ†å—åˆ†ç±»ã€SQL èšåˆã€ä»£è¡¨æ ·æœ¬æ€»ç»“" />
-              <div className="action-row">
-                <button type="button" onClick={handleRunAnalysis} disabled={!selectedProject}>
-                  <Play size={17} />å¯åŠ¨ç‰ˆæœ¬åˆ†æ
-                </button>
-                <button type="button" onClick={() => selectedProject && void refreshReports(selectedProject.id)} disabled={!selectedProject}>
-                  <RefreshCcw size={17} />åˆ·æ–°æŠ¥å‘Š
-                </button>
-              </div>
-              <div className="run-status">{runStatus || "ç­‰å¾…ä»»åŠ¡"}</div>
-            </section>
-
-            <ReportsSection reports={reports} activeReportId={activeReport?.id ?? ""} onSelect={setActiveReportId} />
-          </section>
-
-          <aside className="secondary">
-            <ReportPreview report={activeReport} />
-            <EvidenceSearch query={searchQuery} setQuery={setSearchQuery} results={searchResults} onSearch={handleSearch} disabled={!selectedProject} />
-          </aside>
-        </div>
-      </main>
+            <aside className="grid h-fit gap-6">
+              <ReportPreview report={activeReport} />
+              <EvidenceSearch
+                disabled={!selectedProject || isSearching}
+                isSearching={isSearching}
+                onSearch={handleSearch}
+                query={searchQuery}
+                results={searchResults}
+                setQuery={setSearchQuery}
+              />
+            </aside>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
@@ -288,192 +333,303 @@ function ProjectSection(props: {
   onCreate: (event: React.FormEvent<HTMLFormElement>) => void;
 }) {
   const selectedProject = props.projects.find((project) => project.id === props.selectedProjectId);
-  const metrics = useMemo(() => {
-    return {
+  const metrics = useMemo(
+    () => ({
       versions: selectedProject?.versionWindows.length ?? 0,
       aliases: selectedProject?.entityAliases.length ?? 0,
       sources: selectedProject?.sourceLinks.length ?? 0
-    };
-  }, [selectedProject]);
+    }),
+    [selectedProject]
+  );
 
   return (
-    <section className="panel" id="project">
-      <PanelTitle icon={<Settings2 size={18} />} title="é¡¹ç›®é…ç½®" meta="ç‰ˆæœ¬çª—å£ã€Steam AppIDã€Reddit å…³é”®è¯ã€è§’è‰²è¯è¡¨" />
-      <div className="project-grid">
-        <form onSubmit={props.onCreate} className="project-form">
-          <label>
-            æ¸¸æˆåç§°
-            <input name="name" placeholder="ä¾‹å¦‚ï¼šæ˜Ÿç©¹é“é“" required />
-          </label>
-          <label>
-            ç‰ˆæœ¬åç§°
-            <input name="versionName" placeholder="ä¾‹å¦‚ï¼š2.7 æ›´æ–°" />
-          </label>
-          <label>
-            å‘å¸ƒæ—¶é—´
-            <input name="releasedAt" type="date" />
-          </label>
-          <label>
-            Steam AppID
-            <input name="steamAppId" placeholder="å¯é€‰" />
-          </label>
-          <label>
-            Reddit å­ç‰ˆ
-            <input name="redditSubreddits" placeholder="å¤šä¸ªç”¨é€—å·åˆ†éš”" />
-          </label>
-          <label>
-            Reddit å…³é”®è¯
-            <input name="redditKeywords" placeholder="å¤šä¸ªç”¨é€—å·åˆ†éš”" />
-          </label>
-          <label className="wide">
-            è§’è‰²è¯è¡¨
-            <textarea name="aliases" rows={4} placeholder="é•œæµ: jl, å¸ˆå‚…&#10;å¡èŠ™å¡: kafka" />
-          </label>
-          <label className="wide">
-            è¯´æ˜
-            <textarea name="description" rows={3} placeholder="é¡¹ç›®èƒŒæ™¯ã€ç‰ˆæœ¬ç›®æ ‡æˆ–è§‚å¯Ÿé‡ç‚¹" />
-          </label>
-          <button type="submit">
-            <ShieldCheck size={17} />åˆ›å»ºé¡¹ç›®
-          </button>
+    <Card id="project">
+      <SectionHeader icon={<Settings2 className="size-4" />} meta="°æ±¾´°¿Ú / Steam AppID / Reddit ¹Ø¼ü´Ê / ½ÇÉ«´Ê±í" title="ÏîÄ¿ÅäÖÃ" />
+      <CardContent className="grid grid-cols-[minmax(0,1fr)_300px] gap-5 max-lg:grid-cols-1">
+        <form className="grid grid-cols-2 gap-4 max-md:grid-cols-1" onSubmit={props.onCreate}>
+          <Field label="ÓÎÏ·Ãû³Æ">
+            <Input name="name" placeholder="ÀıÈç£º¾øÇøÁã" required />
+          </Field>
+          <Field label="°æ±¾Ãû³Æ">
+            <Input name="versionName" placeholder="ÀıÈç£º1.7 ¸üĞÂ" />
+          </Field>
+          <Field label="·¢²¼Ê±¼ä">
+            <Input name="releasedAt" type="date" />
+          </Field>
+          <Field label="Steam AppID">
+            <Input name="steamAppId" placeholder="¿ÉÑ¡" />
+          </Field>
+          <Field label="Reddit ×Ó°æ">
+            <Input name="redditSubreddits" placeholder="¶à¸öÓÃ¶ººÅ·Ö¸ô" />
+          </Field>
+          <Field label="Reddit ¹Ø¼ü´Ê">
+            <Input name="redditKeywords" placeholder="¶à¸öÓÃ¶ººÅ·Ö¸ô" />
+          </Field>
+          <Field className="col-span-2 max-md:col-span-1" label="½ÇÉ«´Ê±í">
+            <Textarea name="aliases" placeholder={"ĞÇ¼ûÑÅ: Miyabi, ÑÅ\nÄİ¿É: Nicole"} rows={4} />
+          </Field>
+          <Field className="col-span-2 max-md:col-span-1" label="ËµÃ÷">
+            <Textarea name="description" placeholder="ÏîÄ¿±³¾°¡¢°æ±¾Ä¿±ê»òÖØµã¹Û²ìÎÊÌâ" rows={3} />
+          </Field>
+          <Button className="col-span-2 w-fit max-md:col-span-1" type="submit">
+            <ShieldCheck className="size-4" />
+            ´´½¨ÏîÄ¿
+          </Button>
         </form>
 
-        <div className="project-list">
-          <select value={props.selectedProjectId} onChange={(event) => props.onSelect(event.target.value)}>
-            <option value="">é€‰æ‹©é¡¹ç›®</option>
-            {props.projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-          <div className="metric-grid">
-            <Metric label="ç‰ˆæœ¬çª—å£" value={metrics.versions} />
-            <Metric label="å®ä½“è¯è¡¨" value={metrics.aliases} />
-            <Metric label="æ¥æºé“¾æ¥" value={metrics.sources} />
+        <div className="grid content-start gap-4 rounded-md border border-border bg-muted/50 p-4">
+          <label className="grid gap-2 text-sm font-semibold text-foreground">
+            µ±Ç°ÏîÄ¿
+            <select
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onChange={(event) => props.onSelect(event.target.value)}
+              value={props.selectedProjectId}
+            >
+              <option value="">Ñ¡ÔñÏîÄ¿</option>
+              {props.projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="grid grid-cols-3 gap-3">
+            <Metric label="°æ±¾" value={metrics.versions} />
+            <Metric label="´Ê±í" value={metrics.aliases} />
+            <Metric label="À´Ô´" value={metrics.sources} />
           </div>
-          {selectedProject ? <p className="hint">å½“å‰é¡¹ç›®ï¼š{selectedProject.name}ã€‚ç‰ˆæœ¬å‰åçª—å£é»˜è®¤å„ 14 å¤©ã€‚</p> : <p className="hint">å…ˆåˆ›å»ºæˆ–é€‰æ‹©é¡¹ç›®ï¼Œå†å¯¼å…¥è¯„è®ºå’Œå¯åŠ¨åˆ†æã€‚</p>}
+          <p className="text-sm leading-6 text-muted-foreground">
+            {selectedProject ? `µ±Ç°ÏîÄ¿£º${selectedProject.name}¡£°æ±¾Ç°ºó´°¿ÚÄ¬ÈÏ¸÷ 14 Ìì¡£` : "ÏÈ´´½¨»òÑ¡ÔñÏîÄ¿£¬ÔÙµ¼ÈëÆÀÂÛ²¢Æô¶¯·ÖÎö¡£"}
+          </p>
         </div>
-      </div>
-    </section>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ImportSection(props: {
+  disabled: boolean;
+  isImporting: boolean;
+  onFileImport: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onSampleImport: () => void;
+}) {
+  return (
+    <Card id="import">
+      <SectionHeader icon={<Database className="size-4" />} meta="CSV/JSON¡¢´óÎÄ¼şµ¼Èë¡¢µ±Ç°Ò³½Å±¾²É¼¯¶µµ×" title="Êı¾İµ¼Èë" />
+      <CardContent>
+        <div className="flex flex-wrap gap-3">
+          <Button disabled={props.disabled} onClick={props.onSampleImport} type="button">
+            {props.isImporting ? <Loader2 className="size-4 animate-spin" /> : <UploadCloud className="size-4" />}
+            µ¼ÈëÑùÀı
+          </Button>
+          <label className={cn("inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-semibold transition-colors hover:bg-accent", props.disabled && "pointer-events-none opacity-50")}>
+            <UploadCloud className="size-4" />
+            ÉÏ´« CSV/JSON
+            <input className="sr-only" type="file" accept=".csv,.json" onChange={props.onFileImport} disabled={props.disabled} />
+          </label>
+        </div>
+        <p className="mt-4 text-sm leading-6 text-muted-foreground">
+          ÓÍºï½Å±¾Ìá½»µ½ <code className="rounded bg-primary/8 px-1.5 py-0.5 text-primary">/api/ingest/batch</code>¡£×÷Õß×Ö¶ÎÄ¬ÈÏÍÑÃô£¬Ô­ÎÄ¡¢Æ½Ì¨¡¢Ê±¼äºÍÀ´Ô´Á´½Ó±£ÁôÓÃÓÚÖ¤¾İ»ØËİ¡£
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AnalysisSection(props: {
+  disabled: boolean;
+  isRunning: boolean;
+  onRefresh: () => void;
+  onRun: () => void;
+  runStatus: string;
+}) {
+  return (
+    <Card id="analysis">
+      <SectionHeader icon={<Play className="size-4" />} meta="·Ö¿é·ÖÀà / SQL ¾ÛºÏ / ´ú±íÑù±¾×Ü½á" title="·ÖÎöÈÎÎñ" />
+      <CardContent>
+        <div className="flex flex-wrap gap-3">
+          <Button disabled={props.disabled} onClick={props.onRun} type="button">
+            {props.isRunning ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
+            Æô¶¯°æ±¾·ÖÎö
+          </Button>
+          <Button disabled={props.disabled} onClick={props.onRefresh} type="button" variant="secondary">
+            <RefreshCcw className="size-4" />
+            Ë¢ĞÂ±¨¸æ
+          </Button>
+        </div>
+        <div className="mt-4 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+          {props.runStatus || "µÈ´ıÈÎÎñ"}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
 function ReportsSection(props: { reports: Report[]; activeReportId: string; onSelect: (reportId: string) => void }) {
   return (
-    <section className="panel" id="reports">
-      <PanelTitle icon={<FileText size={18} />} title="æŠ¥å‘Šåˆ—è¡¨" meta="ä¸­æ–‡æŠ¥å‘Šã€åŸæ–‡è¯æ®ã€è¡ŒåŠ¨å»ºè®®" />
-      <div className="report-list">
+    <Card id="reports">
+      <SectionHeader icon={<FileText className="size-4" />} meta="ÖĞÎÄ±¨¸æ¡¢Ô­ÎÄÖ¤¾İ¡¢ĞĞ¶¯½¨Òé" title="±¨¸æÁĞ±í" />
+      <CardContent className="grid gap-2">
         {props.reports.length === 0 ? (
-          <p className="empty">æš‚æ— æŠ¥å‘Šã€‚</p>
+          <EmptyState icon={<FileText className="size-5" />} text="ÔİÎŞ±¨¸æ¡£Íê³ÉÒ»´Î·ÖÎöºó»áÔÚÕâÀïÏÔÊ¾¡£" />
         ) : (
           props.reports.map((report) => (
             <button
-              type="button"
-              className={report.id === props.activeReportId ? "report-row active" : "report-row"}
+              className={cn(
+                "grid w-full gap-1 rounded-md border px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                report.id === props.activeReportId ? "border-primary bg-accent" : "border-border bg-background"
+              )}
               key={report.id}
               onClick={() => props.onSelect(report.id)}
+              type="button"
             >
-              <span>{report.title}</span>
-              <em>{new Date(report.createdAt).toLocaleString()}</em>
+              <span className="font-semibold text-foreground">{report.title}</span>
+              <span className="text-xs text-muted-foreground">{new Date(report.createdAt).toLocaleString()}</span>
             </button>
           ))
         )}
-      </div>
-    </section>
+      </CardContent>
+    </Card>
   );
 }
 
 function ReportPreview({ report }: { report?: Report }) {
   if (!report) {
     return (
-      <section className="panel report-preview">
-        <PanelTitle icon={<FileText size={18} />} title="æŠ¥å‘Šé¢„è§ˆ" meta="ç­‰å¾…åˆ†æè¾“å‡º" />
-        <p className="empty">å¯åŠ¨åˆ†æåï¼Œè¿™é‡Œä¼šæ˜¾ç¤ºæŠ¥å‘Šæ­£æ–‡ã€‚</p>
-      </section>
+      <Card className="sticky top-6 max-xl:static">
+        <SectionHeader icon={<FileText className="size-4" />} meta="µÈ´ı·ÖÎöÊä³ö" title="±¨¸æÔ¤ÀÀ" />
+        <CardContent>
+          <EmptyState icon={<FileText className="size-5" />} text="Æô¶¯·ÖÎöºó£¬ÕâÀï»áÏÔÊ¾±¨¸æÕıÎÄ¡£" />
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <section className="panel report-preview">
-      <PanelTitle icon={<Flame size={18} />} title={report.title} meta={`é£é™©æŒ‡æ•° ${report.summary.riskIndex}/100`} />
-      <div className="kpi-strip">
-        <Metric label="è¯„è®º" value={report.summary.totalComments} />
-        <Metric label="è´Ÿé¢" value={`${Math.round(report.summary.negativeRate * 100)}%`} />
-        <Metric label="BUG" value={`${Math.round(report.summary.bugRate * 100)}%`} />
-      </div>
-      <article className="markdown">{report.markdown}</article>
-    </section>
+    <Card className="sticky top-6 max-xl:static">
+      <SectionHeader icon={<Flame className="size-4" />} meta={`ÓßÇé·çÏÕÖ¸Êı ${report.summary.riskIndex}/100`} title={report.title} />
+      <CardContent>
+        <div className="mb-4 grid grid-cols-3 gap-3">
+          <Metric label="ÆÀÂÛ" value={report.summary.totalComments} />
+          <Metric label="¸ºÃæ" value={`${Math.round(report.summary.negativeRate * 100)}%`} />
+          <Metric label="BUG" value={`${Math.round(report.summary.bugRate * 100)}%`} />
+        </div>
+        <article className="max-h-[520px] overflow-auto rounded-md border border-border bg-muted/35 p-4 text-sm leading-7 text-foreground whitespace-pre-wrap">
+          {report.markdown}
+        </article>
+      </CardContent>
+    </Card>
   );
 }
 
 function EvidenceSearch(props: {
   query: string;
   setQuery: (query: string) => void;
-  results: Awaited<ReturnType<typeof searchComments>>["comments"];
+  results: SearchResult[];
   onSearch: () => void;
   disabled: boolean;
+  isSearching: boolean;
 }) {
   return (
-    <section className="panel" id="evidence">
-      <PanelTitle icon={<Search size={18} />} title="è¯æ®æœç´¢" meta="æŒ‰å…³é”®è¯å›çœ‹åŸæ–‡å’Œæ ‡ç­¾" />
-      <div className="search-line">
-        <input value={props.query} onChange={(event) => props.setQuery(event.target.value)} placeholder="é—ªé€€ã€é€€æ¬¾ã€è§’è‰²å..." />
-        <button type="button" onClick={props.onSearch} disabled={props.disabled}>
-          <Search size={17} />æœç´¢
-        </button>
-      </div>
-      <div className="evidence-list">
-        {props.results.map((item) => (
-          <div className="evidence-row" key={item.id}>
-            <div>
-              <strong>{PLATFORM_LABELS[item.platform]}</strong>
-              {item.label?.isBug ? <Bug size={15} /> : null}
-              {item.label?.isChurnRisk ? <Flame size={15} /> : null}
-            </div>
-            <p>{item.body}</p>
-            <span>{item.label ? `${item.label.sentiment} Â· ${item.label.topic} Â· ä¸¥é‡åº¦ ${item.label.severity}` : "æœªåˆ†æ"}</span>
-          </div>
-        ))}
-      </div>
-    </section>
+    <Card id="evidence">
+      <SectionHeader icon={<Search className="size-4" />} meta="°´¹Ø¼ü´Ê»Ø¿´Ô­ÎÄºÍ±êÇ©" title="Ö¤¾İËÑË÷" />
+      <CardContent>
+        <div className="flex gap-2 max-sm:flex-col">
+          <Input onChange={(event) => props.setQuery(event.target.value)} placeholder="ÍË¿Ó¡¢ÍË¿î¡¢½ÇÉ«Ãû¡¢¿¨¶Ù..." value={props.query} />
+          <Button disabled={props.disabled} onClick={props.onSearch} type="button">
+            {props.isSearching ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
+            ËÑË÷
+          </Button>
+        </div>
+        <div className="mt-4 grid gap-3">
+          {props.results.length === 0 ? (
+            <EmptyState icon={<Search className="size-5" />} text="ËÑË÷½á¹û»áÏÔÊ¾Æ½Ì¨¡¢Ô­ÎÄ¡¢ÇéĞ÷Óë·çÏÕ±êÇ©¡£" />
+          ) : (
+            props.results.map((item) => (
+              <article className="rounded-md border border-border bg-background p-4" key={item.id}>
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary">{PLATFORM_LABELS[item.platform]}</Badge>
+                  {item.label?.isBug ? <Badge variant="destructive"><Bug className="mr-1 size-3" />BUG</Badge> : null}
+                  {item.label?.isChurnRisk ? <Badge><Flame className="mr-1 size-3" />Á÷Ê§ĞÅºÅ</Badge> : null}
+                </div>
+                <p className="text-sm leading-6 text-foreground">{item.body}</p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {item.label ? `${item.label.sentiment} / ${item.label.topic} / ÑÏÖØ¶È ${item.label.severity}` : "Î´·ÖÎö"}
+                </p>
+              </article>
+            ))
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
-function PanelTitle({ icon, title, meta }: { icon: React.ReactNode; title: string; meta: string }) {
+function SectionHeader({ icon, title, meta }: { icon: React.ReactNode; title: string; meta: string }) {
   return (
-    <div className="panel-title">
-      <div>
-        {icon}
-        <h2>{title}</h2>
+    <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="grid size-8 shrink-0 place-items-center rounded-md bg-accent text-accent-foreground">{icon}</div>
+        <CardTitle className="truncate">{title}</CardTitle>
       </div>
-      <span>{meta}</span>
-    </div>
+      <CardDescription className="max-w-[48%] text-right max-md:max-w-none">{meta}</CardDescription>
+    </CardHeader>
+  );
+}
+
+function Field({ children, className, label }: { children: React.ReactNode; className?: string; label: string }) {
+  return (
+    <label className={cn("grid gap-2 text-sm font-semibold text-foreground", className)}>
+      {label}
+      {children}
+    </label>
   );
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div className="min-w-0 rounded-md bg-background p-3">
+      <span className="block truncate text-xs font-semibold text-muted-foreground">{label}</span>
+      <strong className="mt-1 block truncate text-xl font-semibold text-foreground">{value}</strong>
+    </div>
+  );
+}
+
+function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
+  return (
+    <div className="flex items-center gap-3 rounded-md border border-dashed border-border bg-muted/35 px-4 py-5 text-sm text-muted-foreground">
+      {icon}
+      <span>{text}</span>
     </div>
   );
 }
 
 function StatusPill({ state }: { state: ApiState }) {
+  const label = state === "online" ? "API ÔÚÏß" : state === "offline" ? "API ÀëÏß" : "¼ì²éÖĞ";
   return (
-    <div className={`status ${state}`}>
-      <span />
-      {state === "online" ? "API online" : state === "offline" ? "API offline" : "checking"}
-    </div>
+    <Badge className="h-9 gap-2 px-3" variant={state === "offline" ? "destructive" : "secondary"}>
+      {state === "checking" ? <Loader2 className="size-3.5 animate-spin" /> : <span className="size-2 rounded-full bg-current" />}
+      {label}
+    </Badge>
   );
 }
 
 function splitList(value: string): string[] {
   return value
-    .split(/[,ï¼Œ\n]/)
+    .split(/[,£¬\n]/)
     .map((item) => item.trim())
     .filter(Boolean);
 }
 
+function formatRunStatus(status: string) {
+  if (status === "completed") {
+    return "ÒÑÍê³É";
+  }
+  if (status === "failed") {
+    return "Ê§°Ü";
+  }
+  if (status === "running") {
+    return "ÔËĞĞÖĞ";
+  }
+  return "ÅÅ¶ÓÖĞ";
+}
