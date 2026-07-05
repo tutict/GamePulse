@@ -58,7 +58,7 @@ const ingestItemSchema = z.object({
   language: z.string().optional(),
   upvotes: z.number().optional(),
   replies: z.number().optional(),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.string(), z.unknown()).optional()
 });
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
