@@ -1,3 +1,29 @@
+@import "tailwindcss" source(none);
+@source "./";
+@source "../../../packages/ui/src";
+@theme inline {
+  --color-background: hsl(72 24% 91%);
+  --color-foreground: hsl(218 29% 16%);
+  --color-card: hsl(0 0% 100% / 0.68);
+  --color-card-foreground: hsl(218 29% 16%);
+  --color-popover: hsl(0 0% 100%);
+  --color-popover-foreground: hsl(218 29% 16%);
+  --color-primary: hsl(219 39% 15%);
+  --color-primary-foreground: hsl(210 40% 98%);
+  --color-secondary: hsl(72 19% 88%);
+  --color-secondary-foreground: hsl(218 29% 16%);
+  --color-muted: hsl(77 19% 94%);
+  --color-muted-foreground: hsl(220 12% 43%);
+  --color-accent: hsl(156 24% 84%);
+  --color-accent-foreground: hsl(218 29% 16%);
+  --color-destructive: hsl(10 59% 45%);
+  --color-destructive-foreground: hsl(210 40% 98%);
+  --color-border: hsl(218 29% 16% / 0.12);
+  --color-input: hsl(218 29% 16% / 0.16);
+  --color-ring: hsl(158 40% 32%);
+  --radius-md: 0.5rem;
+  --radius-lg: 0.5rem;
+}
 :root {
   color-scheme: dark;
   font-family:

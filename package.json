@@ -8,26 +8,36 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @gamepulse/shared && npm run build -w @gamepulse/api && npm run build -w @gamepulse/web && npm run build -w @gamepulse/userscript",
-    "desktop:build": "npm run build -w @gamepulse/shared && npm run build -w @gamepulse/desktop",
-    "desktop:dev": "npm run build -w @gamepulse/shared && npm run dev -w @gamepulse/desktop",
-    "desktop:dist": "npm run build -w @gamepulse/shared && npm run dist -w @gamepulse/desktop",
-    "dev": "npm run build -w @gamepulse/shared && concurrently -n api,worker,web \"npm run dev -w @gamepulse/api\" \"npm run worker -w @gamepulse/api\" \"npm run dev -w @gamepulse/web\"",
+    "build": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run build -w @gamepulse/api && npm run build -w @gamepulse/web && npm run build -w @gamepulse/userscript",
+    "desktop:build": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run build -w @gamepulse/desktop",
+    "desktop:dev": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run dev -w @gamepulse/desktop",
+    "desktop:dist": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run dist -w @gamepulse/desktop",
+    "dev": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && concurrently -n api,worker,web \"npm run dev -w @gamepulse/api\" \"npm run worker -w @gamepulse/api\" \"npm run dev -w @gamepulse/web\"",
     "debug:start": "powershell -ExecutionPolicy Bypass -File scripts/start-debug.ps1",
     "debug:start:desktop": "powershell -ExecutionPolicy Bypass -File scripts/start-debug.ps1 -Mode desktop",
     "db:migrate": "npm run db:migrate -w @gamepulse/api",
-    "test": "npm run build -w @gamepulse/shared && vitest run",
+    "test": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && node scripts/run-tests.mjs",
     "test:unit": "npm run test",
-    "typecheck": "npm run typecheck -w @gamepulse/shared && npm run typecheck -w @gamepulse/api && npm run typecheck -w @gamepulse/web && npm run typecheck -w @gamepulse/desktop"
+    "typecheck": "npm run typecheck -w @gamepulse/ui && npm run typecheck -w @gamepulse/shared && npm run typecheck -w @gamepulse/api && npm run typecheck -w @gamepulse/web && npm run typecheck -w @gamepulse/desktop"
   },
   "engines": {
     "node": ">=22"
   },
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.6.0"
+  },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.2",
     "@types/node": "^22.10.2",
+    "@vitejs/plugin-react": "5.1.2",
     "concurrently": "^9.1.0",
+    "electron-vite": "5.0.0",
+    "tailwindcss": "^4.3.2",
     "tsx": "^4.19.2",
     "typescript": "7.0.1-rc",
+    "vite": "7.3.6",
     "vitest": "^2.1.8"
   }
 }

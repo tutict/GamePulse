@@ -1,10 +1,12 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, shell } from "electron";
 import { registerCollectorHandlers } from "./collector.js";
 import { initializeDesktopDatabase, registerDatabaseHandlers } from "./database.js";
 import { registerRagHandlers } from "./rag.js";
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
+const currentDir = dirname(fileURLToPath(import.meta.url));
 
 function createMainWindow(): void {
   const window = new BrowserWindow({
@@ -15,7 +17,7 @@ function createMainWindow(): void {
     title: "GamePulse",
     backgroundColor: "#0f172a",
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: join(currentDir, "../preload/index.mjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false
@@ -30,7 +32,7 @@ function createMainWindow(): void {
   if (isDev && process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    void window.loadFile(join(__dirname, "../renderer/index.html"));
+    void window.loadFile(join(currentDir, "../renderer/index.html"));
   }
 }
 

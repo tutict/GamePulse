@@ -1,6 +1,10 @@
-import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import react from "@vitejs/plugin-react";
+
+const appDir = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   main: {
@@ -10,11 +14,13 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   renderer: {
+    root: resolve(appDir, "src/renderer"),
+    cacheDir: resolve(appDir, "../../node_modules/.vite/desktop-renderer"),
     resolve: {
       alias: {
-        "@renderer": resolve("src/renderer/src")
+        "@renderer": resolve(appDir, "src/renderer/src")
       }
     },
-    plugins: [react()]
+    plugins: [react(), tailwindcss()]
   }
 });
