@@ -1,4 +1,4 @@
-import { builtinModules } from "node:module";
+﻿import { builtinModules } from "node:module";
 import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +16,7 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = resolve(appDir, "out");
 const rendererRoot = resolve(appDir, "src/renderer");
-const external = [...builtinModules, ...builtinModules.map((name) => `node:${name}`), "electron", "better-sqlite3"];
+const external = [...builtinModules, ...builtinModules.map((name) => `node:${name}`), "electron"];
 
 async function buildMainAndPreload() {
   await build({
@@ -105,3 +105,4 @@ async function shutdown(code = 0) {
 process.on("SIGINT", () => void shutdown(0));
 process.on("SIGTERM", () => void shutdown(0));
 electronProcess.on("exit", (code) => void shutdown(code ?? 0));
+

@@ -40,3 +40,18 @@ pnpm-debug.log*
 Thumbs.db
 desktop.ini
 .npm-cache/
+
+# Mobile native build output
+apps/mobile/android/.gradle/
+apps/mobile/android/app/build/
+apps/mobile/android/build/
+apps/mobile/android/local.properties
+apps/mobile/android/captures/
+apps/mobile/android/**/*.apk
+apps/mobile/android/**/*.aab
+
+# Native packaging cache
+.cache/electron-gyp/
+.cache/native-home/
+.cache/electron-builder/
+.cache/electron/

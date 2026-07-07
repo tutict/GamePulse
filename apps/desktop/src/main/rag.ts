@@ -1,6 +1,5 @@
-import type Database from "better-sqlite3";
-import { ipcMain } from "electron";
-import { getDesktopDatabase } from "./database.js";
+﻿import { ipcMain } from "electron";
+import { getAllRawItems, type StoredRawItem } from "./database.js";
 
 export interface RagEvidence {
   id: string;
@@ -26,14 +25,9 @@ export interface RagQueryResult {
   contextCharacterCount: number;
 }
 
-interface RawEvidenceRow {
-  id: string;
-  platform: string;
-  source_url?: string | null;
-  source_title?: string | null;
-  body: string;
-  collected_at: string;
-  rank?: number;
+interface ScoredEvidence {
+  item: StoredRawItem;
+  score: number;
 }
 
 export function registerRagHandlers(): void {
@@ -48,7 +42,7 @@ export function runRagQuery(input: RagQueryInput): RagQueryResult {
   }
 
   const limit = clampLimit(input.limit ?? 8);
-  const evidence = retrieveEvidence(getDesktopDatabase(), query, limit);
+  const evidence = retrieveEvidence(query, limit);
   const context = buildContext(evidence);
   const prompt = buildPrompt(query, context);
   const answer = buildExtractiveAnswer(query, evidence);
@@ -62,58 +56,49 @@ export function runRagQuery(input: RagQueryInput): RagQueryResult {
   };
 }
 
-function retrieveEvidence(db: Database.Database, query: string, limit: number): RagEvidence[] {
-  const ftsQuery = toFtsQuery(query);
-  const rows = ftsQuery ? runFtsSearch(db, ftsQuery, limit) : [];
-  const fallbackRows = rows.length > 0 ? rows : runLikeSearch(db, query, limit);
-
-  return fallbackRows.map((row, index) => ({
-    id: row.id,
-    platform: row.platform,
-    sourceUrl: row.source_url ?? undefined,
-    sourceTitle: row.source_title ?? undefined,
-    body: row.body,
-    excerpt: excerpt(row.body),
-    collectedAt: row.collected_at,
-    score: typeof row.rank === "number" ? row.rank : index + 1
-  }));
-}
-
-function runFtsSearch(db: Database.Database, ftsQuery: string, limit: number): RawEvidenceRow[] {
-  return db
-    .prepare(
-      `SELECT r.id, r.platform, r.source_url, r.source_title, r.body, r.collected_at, bm25(raw_items_fts) AS rank
-       FROM raw_items_fts
-       JOIN raw_items r ON r.id = raw_items_fts.raw_item_id
-       WHERE raw_items_fts MATCH @query
-       ORDER BY rank ASC, r.collected_at DESC
-       LIMIT @limit`
-    )
-    .all({ query: ftsQuery, limit }) as RawEvidenceRow[];
-}
-
-function runLikeSearch(db: Database.Database, query: string, limit: number): RawEvidenceRow[] {
-  const terms = tokenize(query).slice(0, 5);
+function retrieveEvidence(query: string, limit: number): RagEvidence[] {
+  const terms = tokenize(query).slice(0, 12);
 
   if (terms.length === 0) {
     return [];
   }
 
-  const where = terms.map((_, index) => `(body_norm LIKE @term${index} OR source_title LIKE @term${index})`).join(" OR ");
-  const params: Record<string, string | number> = { limit };
-  terms.forEach((term, index) => {
-    params[`term${index}`] = `%${term}%`;
-  });
+  return getAllRawItems()
+    .map((item): ScoredEvidence => ({ item, score: scoreItem(item, terms) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || b.item.collectedAt.localeCompare(a.item.collectedAt))
+    .slice(0, limit)
+    .map(({ item, score }) => ({
+      id: item.id,
+      platform: item.platform,
+      sourceUrl: item.sourceUrl,
+      sourceTitle: item.sourceTitle,
+      body: item.body,
+      excerpt: excerpt(item.body),
+      collectedAt: item.collectedAt,
+      score
+    }));
+}
 
-  return db
-    .prepare(
-      `SELECT id, platform, source_url, source_title, body, collected_at, 999 AS rank
-       FROM raw_items
-       WHERE ${where}
-       ORDER BY collected_at DESC
-       LIMIT @limit`
-    )
-    .all(params) as RawEvidenceRow[];
+function scoreItem(item: StoredRawItem, terms: string[]): number {
+  const body = item.bodyNorm.toLowerCase();
+  const title = (item.sourceTitle ?? "").toLowerCase();
+  const platform = item.platform.toLowerCase();
+  let score = 0;
+
+  for (const term of terms) {
+    if (body.includes(term)) {
+      score += term.length >= 4 ? 4 : 2;
+    }
+    if (title.includes(term)) {
+      score += 2;
+    }
+    if (platform.includes(term)) {
+      score += 1;
+    }
+  }
+
+  return score;
 }
 
 function buildContext(evidence: RagEvidence[]): string {
@@ -140,7 +125,7 @@ function buildPrompt(query: string, context: string): string {
 
 function buildExtractiveAnswer(query: string, evidence: RagEvidence[]): string {
   if (evidence.length === 0) {
-    return `No local SQLite evidence matched "${query}". Capture and save page rows first, then run the RAG query again.`;
+    return `No local evidence matched "${query}". Capture and save page rows first, then run the RAG query again.`;
   }
 
   const platforms = Array.from(new Set(evidence.map((item) => item.platform))).join(", ");
@@ -148,13 +133,6 @@ function buildExtractiveAnswer(query: string, evidence: RagEvidence[]): string {
   const topExcerpt = evidence[0]?.excerpt ?? "";
 
   return `Local RAG found ${evidence.length} relevant evidence rows across: ${platforms}. Top evidence: ${topExcerpt} ${references}`;
-}
-
-function toFtsQuery(query: string): string {
-  return tokenize(query)
-    .slice(0, 8)
-    .map((term) => `"${term.replace(/"/g, "")}"`)
-    .join(" OR ");
 }
 
 function tokenize(query: string): string[] {

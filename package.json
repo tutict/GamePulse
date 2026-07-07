@@ -18,7 +18,13 @@
     "db:migrate": "npm run db:migrate -w @gamepulse/api",
     "test": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && node scripts/run-tests.mjs",
     "test:unit": "npm run test",
-    "typecheck": "npm run typecheck -w @gamepulse/ui && npm run typecheck -w @gamepulse/shared && npm run typecheck -w @gamepulse/api && npm run typecheck -w @gamepulse/web && npm run typecheck -w @gamepulse/desktop"
+    "typecheck": "npm run typecheck -w @gamepulse/ui && npm run typecheck -w @gamepulse/shared && npm run typecheck -w @gamepulse/api && npm run typecheck -w @gamepulse/web && npm run typecheck -w @gamepulse/desktop && npm run typecheck -w @gamepulse/mobile",
+    "desktop:dist:windows": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run dist:windows -w @gamepulse/desktop",
+    "mobile:sync:android": "npm run sync:android -w @gamepulse/mobile",
+    "mobile:android:assemble": "npm run android:assemble -w @gamepulse/mobile",
+    "mobile:android:bundle": "npm run android:bundle -w @gamepulse/mobile",
+    "desktop:dist:windows:dir": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run dist:windows:dir -w @gamepulse/desktop",
+    "mobile:open:android": "npm run open:android -w @gamepulse/mobile"
   },
   "engines": {
     "node": ">=22"
@@ -29,6 +35,8 @@
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/cli": "^8.4.1",
     "@tailwindcss/vite": "^4.3.2",
     "@types/node": "^22.20.0",
     "@vitejs/plugin-react": "5.1.2",
@@ -39,5 +47,8 @@
     "typescript": "7.0.1-rc",
     "vite": "7.3.6",
     "vitest": "^4.1.9"
+  },
+  "allowScripts": {
+    "electron@43.0.0": true
   }
 }

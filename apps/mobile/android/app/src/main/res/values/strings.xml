@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">&#x6E38;&#x8109; GamePulse</string>
+    <string name="title_activity_main">&#x6E38;&#x8109; GamePulse</string>
+    <string name="package_name">cn.gamepulse.mobile</string>
+    <string name="custom_url_scheme">cn.gamepulse.mobile</string>
+</resources>

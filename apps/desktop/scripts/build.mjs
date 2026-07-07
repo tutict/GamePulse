@@ -1,4 +1,4 @@
-import { builtinModules } from "node:module";
+﻿import { builtinModules } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
@@ -8,7 +8,7 @@ import { build } from "vite";
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = resolve(appDir, "out");
 const rendererRoot = resolve(appDir, "src/renderer");
-const external = [...builtinModules, ...builtinModules.map((name) => `node:${name}`), "electron", "better-sqlite3"];
+const external = [...builtinModules, ...builtinModules.map((name) => `node:${name}`), "electron"];
 
 await build({
   configFile: false,
@@ -69,3 +69,4 @@ await build({
     }
   }
 });
+

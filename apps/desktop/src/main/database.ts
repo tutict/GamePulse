@@ -1,9 +1,35 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import Database from "better-sqlite3";
 import { app, ipcMain } from "electron";
 import type { CollectorItem, CollectorResult } from "./collector.js";
+
+export interface StoredRawItem {
+  id: string;
+  projectId: string;
+  platform: string;
+  sourceUrl?: string;
+  sourceTitle?: string;
+  body: string;
+  bodyNorm: string;
+  collectedAt: string;
+  contentHash: string;
+  metadata: Record<string, unknown>;
+}
+
+interface StoredProject {
+  id: string;
+  name: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface DesktopStoreFile {
+  version: 1;
+  projects: StoredProject[];
+  rawItems: StoredRawItem[];
+}
 
 interface SaveCollectorResult {
   accepted: number;
@@ -19,7 +45,7 @@ interface DatabaseStats {
   latestCollectedAt?: string;
 }
 
-let database: Database.Database | undefined;
+let store: DesktopStoreFile | undefined;
 
 export function registerDatabaseHandlers(): void {
   ipcMain.handle("database:get-stats", () => getDatabaseStats());
@@ -27,145 +53,95 @@ export function registerDatabaseHandlers(): void {
 }
 
 export function initializeDesktopDatabase(): void {
-  const db = getDesktopDatabase();
-  migrate(db);
+  void getDesktopStore();
 }
 
-export function getDesktopDatabase(): Database.Database {
-  if (!database) {
+export function getDesktopStore(): DesktopStoreFile {
+  if (!store) {
     const databasePath = getDatabasePath();
     mkdirSync(dirname(databasePath), { recursive: true });
-    database = new Database(databasePath);
-    database.pragma("journal_mode = WAL");
-    database.pragma("foreign_keys = ON");
-    migrate(database);
+    store = readStore(databasePath);
+    persistStore();
   }
 
-  return database;
+  return store;
+}
+
+export function getAllRawItems(): StoredRawItem[] {
+  return getDesktopStore().rawItems;
 }
 
 function getDatabasePath(): string {
-  return join(app.getPath("userData"), "gamepulse.sqlite3");
+  return join(app.getPath("userData"), "gamepulse-store.json");
 }
 
-function migrate(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT,
-      source_links TEXT NOT NULL DEFAULT '[]',
-      version_windows TEXT NOT NULL DEFAULT '[]',
-      entity_aliases TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
+function readStore(databasePath: string): DesktopStoreFile {
+  if (!existsSync(databasePath)) {
+    return createEmptyStore();
+  }
 
-    CREATE TABLE IF NOT EXISTS raw_items (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      platform TEXT NOT NULL,
-      source_url TEXT,
-      source_title TEXT,
-      body TEXT NOT NULL,
-      body_norm TEXT NOT NULL,
-      collected_at TEXT NOT NULL,
-      content_hash TEXT NOT NULL,
-      metadata TEXT NOT NULL DEFAULT '{}',
-      UNIQUE(project_id, platform, content_hash)
-    );
-
-    CREATE INDEX IF NOT EXISTS raw_items_project_collected_idx ON raw_items(project_id, collected_at DESC);
-    CREATE INDEX IF NOT EXISTS raw_items_project_platform_idx ON raw_items(project_id, platform);
-
-    CREATE TABLE IF NOT EXISTS app_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-  `);
-
-  ensureFtsSchema(db);
+  try {
+    const parsed = JSON.parse(readFileSync(databasePath, "utf8")) as Partial<DesktopStoreFile>;
+    return {
+      version: 1,
+      projects: Array.isArray(parsed.projects) ? parsed.projects.map(validateStoredProject) : [],
+      rawItems: Array.isArray(parsed.rawItems) ? parsed.rawItems.map(validateStoredRawItem).filter((item): item is StoredRawItem => Boolean(item)) : []
+    };
+  } catch {
+    return createEmptyStore();
+  }
 }
 
-function ensureFtsSchema(db: Database.Database): void {
-  const ftsColumns = db.prepare("PRAGMA table_info(raw_items_fts)").all() as Array<{ name: string }>;
-  const hasExpectedSchema = ftsColumns.some((column) => column.name === "raw_item_id");
+function createEmptyStore(): DesktopStoreFile {
+  return { version: 1, projects: [], rawItems: [] };
+}
 
-  if (!hasExpectedSchema) {
-    db.exec("DROP TABLE IF EXISTS raw_items_fts");
-  }
-
-  db.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS raw_items_fts USING fts5(
-      raw_item_id UNINDEXED,
-      body,
-      source_title,
-      platform UNINDEXED,
-      source_url UNINDEXED
-    );
-  `);
-
-  const ftsCount = db.prepare("SELECT count(*) AS count FROM raw_items_fts").get() as { count: number };
-  const rawCount = db.prepare("SELECT count(*) AS count FROM raw_items").get() as { count: number };
-
-  if (rawCount.count > 0 && ftsCount.count === 0) {
-    db.exec(`
-      INSERT INTO raw_items_fts (raw_item_id, body, source_title, platform, source_url)
-      SELECT id, body, source_title, platform, source_url FROM raw_items;
-    `);
-  }
+function persistStore(): void {
+  const current = getDesktopStore();
+  writeFileSync(getDatabasePath(), `${JSON.stringify(current, null, 2)}\n`, "utf8");
 }
 
 function saveCollectorResult(result: CollectorResult): SaveCollectorResult {
-  const db = getDesktopDatabase();
-  const projectId = ensureCollectorProject(db);
+  const current = getDesktopStore();
+  const projectId = ensureCollectorProject(current);
   const now = new Date().toISOString();
-  const insertItem = db.prepare(`
-    INSERT OR IGNORE INTO raw_items (
-      id, project_id, platform, source_url, source_title, body, body_norm, collected_at, content_hash, metadata
-    ) VALUES (
-      @id, @projectId, @platform, @sourceUrl, @sourceTitle, @body, @bodyNorm, @collectedAt, @contentHash, @metadata
-    )
-  `);
-  const insertFts = db.prepare(`
-    INSERT INTO raw_items_fts (raw_item_id, body, source_title, platform, source_url)
-    VALUES (@id, @body, @sourceTitle, @platform, @sourceUrl)
-  `);
+  const existingHashes = new Set(current.rawItems.map((item) => `${item.projectId}\u001f${item.platform}\u001f${item.contentHash}`));
+  let inserted = 0;
 
-  const transaction = db.transaction((items: CollectorItem[]) => {
-    let inserted = 0;
-
-    for (const item of items) {
-      const bodyNorm = normalizeWhitespace(item.body);
-      if (!bodyNorm) {
-        continue;
-      }
-
-      const row = {
-        id: randomUUID(),
-        projectId,
-        platform: item.platform || result.platform || "import",
-        sourceUrl: item.sourceUrl || result.url,
-        sourceTitle: item.sourceTitle || result.title,
-        body: bodyNorm,
-        bodyNorm,
-        collectedAt: now,
-        contentHash: contentHash(item),
-        metadata: JSON.stringify({ selector: item.selector })
-      };
-
-      const outcome = insertItem.run(row);
-      if (outcome.changes > 0) {
-        insertFts.run(row);
-        inserted += 1;
-      }
+  for (const item of result.items) {
+    const bodyNorm = normalizeWhitespace(item.body);
+    if (!bodyNorm) {
+      continue;
     }
 
-    return inserted;
-  });
+    const platform = item.platform || result.platform || "import";
+    const contentHashValue = contentHash({ ...item, platform });
+    const uniqueKey = `${projectId}\u001f${platform}\u001f${contentHashValue}`;
 
-  const inserted = transaction(result.items);
+    if (existingHashes.has(uniqueKey)) {
+      continue;
+    }
+
+    current.rawItems.push({
+      id: randomUUID(),
+      projectId,
+      platform,
+      sourceUrl: item.sourceUrl || result.url || undefined,
+      sourceTitle: item.sourceTitle || result.title || undefined,
+      body: bodyNorm,
+      bodyNorm,
+      collectedAt: now,
+      contentHash: contentHashValue,
+      metadata: { selector: item.selector }
+    });
+    existingHashes.add(uniqueKey);
+    inserted += 1;
+  }
+
+  if (inserted > 0) {
+    persistStore();
+  }
+
   const stats = getDatabaseStats();
 
   return {
@@ -177,37 +153,81 @@ function saveCollectorResult(result: CollectorResult): SaveCollectorResult {
 }
 
 function getDatabaseStats(): DatabaseStats {
-  const db = getDesktopDatabase();
-  const projectCount = db.prepare("SELECT count(*) AS count FROM projects").get() as { count: number };
-  const rawItemCount = db.prepare("SELECT count(*) AS count FROM raw_items").get() as { count: number };
-  const latest = db.prepare("SELECT max(collected_at) AS latestCollectedAt FROM raw_items").get() as { latestCollectedAt?: string | null };
+  const current = getDesktopStore();
+  const latestCollectedAt = current.rawItems
+    .map((item) => item.collectedAt)
+    .filter(Boolean)
+    .sort()
+    .at(-1);
 
   return {
     databasePath: getDatabasePath(),
-    projectCount: Number(projectCount.count),
-    rawItemCount: Number(rawItemCount.count),
-    latestCollectedAt: latest.latestCollectedAt ?? undefined
+    projectCount: current.projects.length,
+    rawItemCount: current.rawItems.length,
+    latestCollectedAt
   };
 }
 
-function ensureCollectorProject(db: Database.Database): string {
+function ensureCollectorProject(current: DesktopStoreFile): string {
   const id = "desktop-collector";
-  const now = new Date().toISOString();
+  const existing = current.projects.find((project) => project.id === id);
 
-  db.prepare(`
-    INSERT OR IGNORE INTO projects (
-      id, name, description, source_links, version_windows, entity_aliases, created_at, updated_at
-    ) VALUES (
-      @id, @name, @description, '[]', '[]', '[]', @now, @now
-    )
-  `).run({
+  if (existing) {
+    return existing.id;
+  }
+
+  const now = new Date().toISOString();
+  current.projects.push({
     id,
     name: "Desktop Collector",
     description: "Rows captured by the Electron bundled Chromium collector.",
-    now
+    createdAt: now,
+    updatedAt: now
   });
-
+  persistStore();
   return id;
+}
+
+function validateStoredProject(value: unknown): StoredProject {
+  if (!isRecord(value)) {
+    const now = new Date().toISOString();
+    return { id: randomUUID(), name: "Imported Project", description: "", createdAt: now, updatedAt: now };
+  }
+
+  const now = new Date().toISOString();
+  return {
+    id: asString(value.id) || randomUUID(),
+    name: asString(value.name) || "Imported Project",
+    description: asString(value.description),
+    createdAt: asString(value.createdAt) || now,
+    updatedAt: asString(value.updatedAt) || now
+  };
+}
+
+function validateStoredRawItem(value: unknown): StoredRawItem | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const body = normalizeWhitespace(asString(value.body));
+  if (!body) {
+    return undefined;
+  }
+
+  const platform = asString(value.platform) || "import";
+  const sourceUrl = asString(value.sourceUrl) || undefined;
+  return {
+    id: asString(value.id) || randomUUID(),
+    projectId: asString(value.projectId) || "desktop-collector",
+    platform,
+    sourceUrl,
+    sourceTitle: asString(value.sourceTitle) || undefined,
+    body,
+    bodyNorm: normalizeWhitespace(asString(value.bodyNorm) || body),
+    collectedAt: asString(value.collectedAt) || new Date().toISOString(),
+    contentHash: asString(value.contentHash) || createHash("sha256").update([platform, sourceUrl, body].join("\u001f")).digest("hex"),
+    metadata: isRecord(value.metadata) ? value.metadata : {}
+  };
 }
 
 function validateCollectorResult(value: unknown): CollectorResult {
