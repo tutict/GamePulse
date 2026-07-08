@@ -42,3 +42,58 @@ export function excerpt(value: string, maxLength = 160): string {
   return `${normalized.slice(0, maxLength - 1)}...`;
 }
 
+
+
+export function sanitizeMetadata(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  const sanitized: Record<string, unknown> = {};
+
+  for (const [key, entry] of Object.entries(value)) {
+    if (isSensitiveMetadataKey(key)) {
+      continue;
+    }
+
+    if (isRecord(entry)) {
+      const nested = sanitizeMetadata(entry);
+      if (Object.keys(nested).length > 0) {
+        sanitized[key] = nested;
+      }
+    } else if (Array.isArray(entry)) {
+      sanitized[key] = entry
+        .slice(0, 20)
+        .map((item) => (isRecord(item) ? sanitizeMetadata(item) : sanitizeMetadataValue(item)))
+        .filter((item) => item !== undefined);
+    } else {
+      const safeValue = sanitizeMetadataValue(entry);
+      if (safeValue !== undefined) {
+        sanitized[key] = safeValue;
+      }
+    }
+  }
+
+  return sanitized;
+}
+
+function sanitizeMetadataValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value.length > 2048 ? value.slice(0, 2048) : value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean" || value === null) {
+    return value;
+  }
+
+  return undefined;
+}
+
+function isSensitiveMetadataKey(key: string): boolean {
+  return /author|avatar|nickname|nick|profile|user(name|id)?|uid|account|openid|email|phone|cookie|token|session/i.test(key);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+

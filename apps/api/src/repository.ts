@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient, QueryResultRow } from "pg";
 import type { EntityAlias, IngestItem, Platform, Project, SourceLink, VersionWindow } from "@gamepulse/shared";
-import { buildContentHash, detectLanguage, hashAuthor, normalizeWhitespace } from "@gamepulse/shared";
+import { buildContentHash, detectLanguage, hashAuthor, normalizeWhitespace, sanitizeMetadata } from "@gamepulse/shared";
 import { query, withClient } from "./db.js";
 
 export interface CreateProjectInput {
@@ -88,7 +88,8 @@ function normalizeIngestItem(item: IngestItem): IngestItem & { bodyNorm: string;
   const normalized: IngestItem = {
     ...item,
     body: bodyNorm,
-    language: item.language ?? detectLanguage(bodyNorm)
+    language: item.language ?? detectLanguage(bodyNorm),
+    metadata: sanitizeMetadata(item.metadata)
   };
 
   return {
@@ -140,6 +141,7 @@ async function insertChunk(
 
   return result.rowCount ?? 0;
 }
+
 
 export function rowToProject(row: QueryResultRow): Project {
   return {

@@ -1,5 +1,6 @@
-﻿import { ipcMain } from "electron";
-import { getAllRawItems, type StoredRawItem } from "./database.js";
+import { ipcMain } from "electron";
+import { getRecentRawItems, type StoredRawItem } from "./database.js";
+import { assertTrustedIpcSender } from "./security.js";
 
 export interface RagEvidence {
   id: string;
@@ -30,8 +31,14 @@ interface ScoredEvidence {
   score: number;
 }
 
+const maxRagScanItems = 100_000;
+const maxScoredCandidates = 2_000;
+
 export function registerRagHandlers(): void {
-  ipcMain.handle("rag:query", (_event, input: RagQueryInput) => runRagQuery(input));
+  ipcMain.handle("rag:query", (event, input: RagQueryInput) => {
+    assertTrustedIpcSender(event);
+    return runRagQuery(input);
+  });
 }
 
 export function runRagQuery(input: RagQueryInput): RagQueryResult {
@@ -63,10 +70,23 @@ function retrieveEvidence(query: string, limit: number): RagEvidence[] {
     return [];
   }
 
-  return getAllRawItems()
-    .map((item): ScoredEvidence => ({ item, score: scoreItem(item, terms) }))
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score || b.item.collectedAt.localeCompare(a.item.collectedAt))
+  const scored: ScoredEvidence[] = [];
+
+  for (const item of getRecentRawItems(maxRagScanItems)) {
+    const score = scoreItem(item, terms);
+    if (score <= 0) {
+      continue;
+    }
+
+    scored.push({ item, score });
+    if (scored.length > maxScoredCandidates * 2) {
+      scored.sort(compareEvidence);
+      scored.length = maxScoredCandidates;
+    }
+  }
+
+  return scored
+    .sort(compareEvidence)
     .slice(0, limit)
     .map(({ item, score }) => ({
       id: item.id,
@@ -78,6 +98,10 @@ function retrieveEvidence(query: string, limit: number): RagEvidence[] {
       collectedAt: item.collectedAt,
       score
     }));
+}
+
+function compareEvidence(a: ScoredEvidence, b: ScoredEvidence): number {
+  return b.score - a.score || b.item.collectedAt.localeCompare(a.item.collectedAt);
 }
 
 function scoreItem(item: StoredRawItem, terms: string[]): number {

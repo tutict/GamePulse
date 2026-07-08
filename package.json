@@ -18,7 +18,7 @@
     "db:migrate": "npm run db:migrate -w @gamepulse/api",
     "test": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && node scripts/run-tests.mjs",
     "test:unit": "npm run test",
-    "typecheck": "npm run typecheck -w @gamepulse/ui && npm run typecheck -w @gamepulse/shared && npm run typecheck -w @gamepulse/api && npm run typecheck -w @gamepulse/web && npm run typecheck -w @gamepulse/desktop && npm run typecheck -w @gamepulse/mobile",
+    "typecheck": "npm run typecheck -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run typecheck -w @gamepulse/shared && npm run typecheck -w @gamepulse/api && npm run typecheck -w @gamepulse/web && npm run typecheck -w @gamepulse/desktop && npm run typecheck -w @gamepulse/mobile",
     "desktop:dist:windows": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run dist:windows -w @gamepulse/desktop",
     "mobile:sync:android": "npm run sync:android -w @gamepulse/mobile",
     "mobile:android:assemble": "npm run android:assemble -w @gamepulse/mobile",

@@ -2,9 +2,11 @@ import "dotenv/config";
 
 export interface AppConfig {
   port: number;
+  host: string;
   databaseUrl: string;
   redisUrl: string;
   corsOrigin: string;
+  localApiToken?: string;
   runAnalysisInline: boolean;
   modelProvider: "heuristic" | "openai" | "ollama";
   openaiBaseUrl: string;
@@ -19,9 +21,11 @@ export interface AppConfig {
 export function loadConfig(): AppConfig {
   return {
     port: Number(process.env.PORT ?? 4317),
+    host: process.env.HOST ?? "127.0.0.1",
     databaseUrl: process.env.DATABASE_URL ?? "postgres://gamepulse:gamepulse@localhost:5432/gamepulse",
     redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
-    corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:5173",
+    corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:5173,http://127.0.0.1:5173",
+    localApiToken: process.env.GAMEPULSE_API_TOKEN,
     runAnalysisInline: process.env.RUN_ANALYSIS_INLINE === "true",
     modelProvider: (process.env.MODEL_PROVIDER as AppConfig["modelProvider"]) ?? "heuristic",
     openaiBaseUrl: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",

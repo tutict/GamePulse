@@ -1,71 +1,39 @@
-import { randomUUID } from "node:crypto";
-import cors from "@fastify/cors";
+﻿import { randomUUID } from "node:crypto";
 import multipart from "@fastify/multipart";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { PLATFORMS, type Platform } from "@gamepulse/shared";
 import { migrate, query } from "./db.js";
-import { parseImportPayload } from "./importers.js";
-import { createProject, getProject, insertIngestItems, listProjects, parsePlatform, rowToProject, toIso } from "./repository.js";
+import { handleImportRequest } from "./importService.js";
+import { createProject, getProject, insertIngestItems, listProjects, parsePlatform, toIso } from "./repository.js";
 import { enqueueAnalysisRun } from "./queue.js";
 import { fetchRedditPosts, fetchSteamReviews } from "./connectors.js";
+import { loadConfig } from "./config.js";
+import { registerHttpSecurity } from "./httpSecurity.js";
+import { rowToReport } from "./reportMapper.js";
+import { ingestItemSchema, projectSchema } from "./schemas.js";
 
-const platformSchema = z.enum(PLATFORMS);
-
-const entityAliasSchema = z.object({
-  kind: z.enum(["character", "version", "system", "mode"]),
-  canonical: z.string().min(1),
-  aliases: z.array(z.string()).default([])
+const searchQuerySchema = z.object({
+  projectId: z.string(),
+  q: z.string().optional(),
+  platform: z.string().optional(),
+  sentiment: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+  before: z.string().datetime().optional()
 });
 
-const versionWindowSchema = z.object({
-  id: z.string().default(() => randomUUID()),
-  name: z.string().min(1),
-  releasedAt: z.string().datetime(),
-  beforeDays: z.number().int().min(0).max(365).default(14),
-  afterDays: z.number().int().min(1).max(365).default(14)
-});
-
-const projectSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
-  steamAppId: z.string().optional(),
-  redditSubreddits: z.array(z.string()).default([]),
-  redditKeywords: z.array(z.string()).default([]),
-  sourceLinks: z
-    .array(
-      z.object({
-        platform: platformSchema,
-        url: z.string().url(),
-        label: z.string().optional()
-      })
-    )
-    .default([]),
-  versionWindows: z.array(versionWindowSchema).default([]),
-  entityAliases: z.array(entityAliasSchema).default([])
-});
-
-const ingestItemSchema = z.object({
-  platform: platformSchema,
-  body: z.string().min(1),
-  sourceUrl: z.string().optional(),
-  sourceTitle: z.string().optional(),
-  externalId: z.string().optional(),
-  authorName: z.string().optional(),
-  authorId: z.string().optional(),
-  authorProfileUrl: z.string().optional(),
-  postedAt: z.string().optional(),
-  language: z.string().optional(),
-  upvotes: z.number().optional(),
-  replies: z.number().optional(),
-  metadata: z.record(z.string(), z.unknown()).optional()
+const analysisRunSchema = z.object({
+  projectId: z.string(),
+  versionWindowId: z.string().optional(),
+  periodStart: z.string().datetime().optional(),
+  periodEnd: z.string().datetime().optional(),
+  sampleLimit: z.number().int().positive().optional()
 });
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
-  await app.register(cors, {
-    origin: true,
-    methods: ["GET", "POST", "OPTIONS"]
-  });
+  const config = loadConfig();
+
+  await registerHttpSecurity(app, config);
   await app.register(multipart, {
     limits: {
       fileSize: 1024 * 1024 * 200
@@ -119,18 +87,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return insertIngestItems(body.projectId, body.items);
   });
 
-  app.post("/api/imports", async (request, reply) => {
-    const payload = await readImportRequest(request);
-    const project = await getProject(payload.projectId);
-
-    if (!project) {
-      return reply.code(404).send({ error: "Project not found" });
-    }
-
-    const items = payload.rows ?? parseImportPayload(payload.format, payload.content ?? "", payload.defaultPlatform);
-    const result = await insertIngestItems(payload.projectId, items);
-    return { ...result, parsed: items.length };
-  });
+  app.post("/api/imports", async (request, reply) => handleImportRequest(request, reply));
 
   app.post("/api/connectors/steam/reviews", async (request, reply) => {
     const body = z
@@ -169,15 +126,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/api/analysis/runs", async (request, reply) => {
-    const input = z
-      .object({
-        projectId: z.string(),
-        versionWindowId: z.string().optional(),
-        periodStart: z.string().optional(),
-        periodEnd: z.string().optional(),
-        sampleLimit: z.number().int().positive().optional()
-      })
-      .parse(request.body);
+    const input = analysisRunSchema.parse(request.body);
     const project = await getProject(input.projectId);
 
     if (!project) {
@@ -246,16 +195,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/api/comments/search", async (request) => {
-    const params = z
-      .object({
-        projectId: z.string(),
-        q: z.string().optional(),
-        platform: z.string().optional(),
-        sentiment: z.string().optional(),
-        limit: z.coerce.number().int().min(1).max(200).default(50),
-        offset: z.coerce.number().int().min(0).default(0)
-      })
-      .parse(request.query);
+    const params = searchQuerySchema.parse(request.query);
     const platform = parsePlatform(params.platform);
     const result = await query(
       `SELECT r.id, r.platform, r.source_url, r.source_title, r.body, r.posted_at, r.collected_at, r.language,
@@ -263,12 +203,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
        FROM raw_items r
        LEFT JOIN analysis_labels l ON l.comment_id = r.id
        WHERE r.project_id = $1
-         AND ($2::text IS NULL OR r.body_norm ILIKE '%' || $2 || '%')
+         AND ($2::text IS NULL OR lower(r.body_norm) LIKE '%' || lower($2) || '%')
          AND ($3::text IS NULL OR r.platform = $3)
          AND ($4::text IS NULL OR l.sentiment = $4)
-       ORDER BY COALESCE(r.posted_at, r.collected_at) DESC
-       LIMIT $5 OFFSET $6`,
-      [params.projectId, params.q ?? null, platform ?? null, params.sentiment ?? null, params.limit, params.offset]
+         AND ($5::timestamptz IS NULL OR COALESCE(r.posted_at, r.collected_at) < $5::timestamptz)
+       ORDER BY COALESCE(r.posted_at, r.collected_at) DESC, r.id DESC
+       LIMIT $6 OFFSET $7`,
+      [params.projectId, params.q ?? null, platform ?? null, params.sentiment ?? null, params.before ?? null, params.limit, params.offset]
     );
 
     return {
@@ -297,69 +238,4 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }))
     };
   });
-}
-
-async function readImportRequest(request: FastifyRequest): Promise<{
-  projectId: string;
-  format: "csv" | "json";
-  content?: string;
-  rows?: z.infer<typeof ingestItemSchema>[];
-  defaultPlatform: Platform;
-}> {
-  if (request.isMultipart()) {
-    let projectId = "";
-    let format: "csv" | "json" = "csv";
-    let defaultPlatform: Platform = "import";
-    let content = "";
-
-    for await (const part of request.parts()) {
-      if (part.type === "file") {
-        const buffer = await part.toBuffer();
-        content = buffer.toString("utf8");
-        format = part.filename?.toLowerCase().endsWith(".json") ? "json" : "csv";
-      } else if (part.fieldname === "projectId") {
-        projectId = String(part.value);
-      } else if (part.fieldname === "format" && (part.value === "csv" || part.value === "json")) {
-        format = part.value;
-      } else if (part.fieldname === "defaultPlatform") {
-        defaultPlatform = parsePlatform(part.value) ?? "import";
-      }
-    }
-
-    if (!projectId || !content) {
-      throw new Error("Multipart import requires projectId and file");
-    }
-
-    return { projectId, format, content, defaultPlatform };
-  }
-
-  const body = z
-    .object({
-      projectId: z.string(),
-      format: z.enum(["csv", "json"]).default("json"),
-      content: z.string().optional(),
-      rows: z.array(ingestItemSchema).optional(),
-      defaultPlatform: platformSchema.default("import")
-    })
-    .parse(request.body);
-
-  if (!body.content && !body.rows) {
-    throw new Error("Import requires content or rows");
-  }
-
-  return body;
-}
-
-function rowToReport(row: Record<string, unknown>) {
-  return {
-    id: row.id,
-    runId: row.run_id,
-    projectId: row.project_id,
-    title: row.title,
-    periodStart: row.period_start ? toIso(row.period_start) : undefined,
-    periodEnd: row.period_end ? toIso(row.period_end) : undefined,
-    markdown: row.markdown,
-    summary: row.summary,
-    createdAt: toIso(row.created_at)
-  };
 }

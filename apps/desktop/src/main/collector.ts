@@ -1,4 +1,5 @@
 import { BrowserWindow, ipcMain } from "electron";
+import { assertTrustedIpcSender } from "./security.js";
 
 export interface CollectorItem {
   body: string;
@@ -17,7 +18,8 @@ export interface CollectorResult {
 }
 
 export function registerCollectorHandlers(): void {
-  ipcMain.handle("collector:capture-visible", async (_event, input: { url?: string }) => {
+  ipcMain.handle("collector:capture-visible", async (event, input: { url?: string }) => {
+    assertTrustedIpcSender(event);
     return captureVisibleText(input?.url ?? "");
   });
 }

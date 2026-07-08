@@ -1,4 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
@@ -38,6 +39,7 @@ CREATE INDEX IF NOT EXISTS raw_items_project_posted_idx ON raw_items(project_id,
 CREATE INDEX IF NOT EXISTS raw_items_project_platform_idx ON raw_items(project_id, platform);
 CREATE INDEX IF NOT EXISTS raw_items_content_hash_idx ON raw_items(content_hash);
 CREATE INDEX IF NOT EXISTS raw_items_body_fts_idx ON raw_items USING GIN (to_tsvector('simple', body_norm));
+CREATE INDEX IF NOT EXISTS raw_items_body_trgm_idx ON raw_items USING GIN (lower(body_norm) gin_trgm_ops);
 
 CREATE TABLE IF NOT EXISTS analysis_runs (
   id TEXT PRIMARY KEY,
@@ -117,4 +119,19 @@ CREATE TABLE IF NOT EXISTS embedding_cache (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(provider, model, input_hash)
 );
+
+CREATE TABLE IF NOT EXISTS model_cache (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  input_hash TEXT NOT NULL,
+  output_text TEXT,
+  output_json JSONB,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(provider, model, kind, input_hash)
+);
+
+CREATE INDEX IF NOT EXISTS model_cache_lookup_idx ON model_cache(provider, model, kind, input_hash);
 

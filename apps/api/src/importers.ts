@@ -1,4 +1,4 @@
-import { parse } from "csv-parse/sync";
+﻿import { parse } from "csv-parse/sync";
 import type { IngestItem, Platform } from "@gamepulse/shared";
 import { PLATFORMS } from "@gamepulse/shared";
 
@@ -36,9 +36,7 @@ export function parseCsvRows(content: string): LooseRow[] {
 
 export function mapRowToIngestItem(row: LooseRow, defaultPlatform: Platform): IngestItem {
   const platform = coercePlatform(first(row, ["platform", "source", "channel"]), defaultPlatform);
-  const body =
-    firstString(row, ["body", "content", "text", "comment", "review", "title", "message"]) ??
-    "";
+  const body = firstString(row, ["body", "content", "text", "comment", "review", "title", "message"]) ?? "";
 
   return {
     platform,
@@ -95,14 +93,14 @@ function firstNumber(row: LooseRow, keys: string[]): number | undefined {
 function coercePlatform(value: unknown, fallback: Platform): Platform {
   const normalized = String(value ?? "").toLowerCase();
   const alias: Record<string, Platform> = {
-    b站: "bilibili",
+    "b站": "bilibili",
     bilibili: "bilibili",
     steam: "steam",
     nga: "nga",
     reddit: "reddit",
     taptap: "taptap",
     tap: "taptap",
-    小黑盒: "heybox",
+    "小黑盒": "heybox",
     heybox: "heybox",
     import: "import"
   };
@@ -110,4 +108,3 @@ function coercePlatform(value: unknown, fallback: Platform): Platform {
   const platform = alias[normalized] ?? normalized;
   return platformSet.has(platform) ? (platform as Platform) : fallback;
 }
-

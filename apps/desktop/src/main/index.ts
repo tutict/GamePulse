@@ -1,9 +1,10 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow } from "electron";
 import { registerCollectorHandlers } from "./collector.js";
 import { initializeDesktopDatabase, registerDatabaseHandlers } from "./database.js";
 import { registerRagHandlers } from "./rag.js";
+import { isTrustedRendererUrl, openExternalIfSafe } from "./security.js";
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -20,13 +21,18 @@ function createMainWindow(): void {
       preload: join(currentDir, "../preload/index.mjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    void openExternalIfSafe(url);
     return { action: "deny" };
+  });
+  window.webContents.on("will-navigate", (event, url) => {
+    if (!isTrustedRendererUrl(url)) {
+      event.preventDefault();
+    }
   });
 
   if (isDev && process.env.ELECTRON_RENDERER_URL) {

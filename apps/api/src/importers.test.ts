@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import { parseImportPayload } from "./importers.js";
 
 describe("import parsing", () => {
   it("maps CSV aliases into ingest items", () => {
     const rows = parseImportPayload(
       "csv",
-      "platform,content,url,author,likes\nsteam,更新后闪退要退坑,http://example.test/a,Alice,12",
+      "platform,content,url,author,likes\nsteam,更新后闪退要退款,http://example.test/a,Alice,12",
       "import"
     );
 
@@ -23,4 +23,3 @@ describe("import parsing", () => {
     expect(rows[0]?.body).toBe("优化不错");
   });
 });
-

@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { app, ipcMain } from "electron";
 import type { CollectorItem, CollectorResult } from "./collector.js";
+import { assertTrustedIpcSender } from "./security.js";
 
 export interface StoredRawItem {
   id: string;
@@ -48,8 +49,14 @@ interface DatabaseStats {
 let store: DesktopStoreFile | undefined;
 
 export function registerDatabaseHandlers(): void {
-  ipcMain.handle("database:get-stats", () => getDatabaseStats());
-  ipcMain.handle("database:save-collector-result", (_event, result: unknown) => saveCollectorResult(validateCollectorResult(result)));
+  ipcMain.handle("database:get-stats", (event) => {
+    assertTrustedIpcSender(event);
+    return getDatabaseStats();
+  });
+  ipcMain.handle("database:save-collector-result", (event, result: unknown) => {
+    assertTrustedIpcSender(event);
+    return saveCollectorResult(validateCollectorResult(result));
+  });
 }
 
 export function initializeDesktopDatabase(): void {
@@ -69,6 +76,11 @@ export function getDesktopStore(): DesktopStoreFile {
 
 export function getAllRawItems(): StoredRawItem[] {
   return getDesktopStore().rawItems;
+}
+
+export function getRecentRawItems(limit: number): StoredRawItem[] {
+  const items = getDesktopStore().rawItems;
+  return items.length > limit ? items.slice(items.length - limit) : items;
 }
 
 function getDatabasePath(): string {
@@ -98,7 +110,10 @@ function createEmptyStore(): DesktopStoreFile {
 
 function persistStore(): void {
   const current = getDesktopStore();
-  writeFileSync(getDatabasePath(), `${JSON.stringify(current, null, 2)}\n`, "utf8");
+  const databasePath = getDatabasePath();
+  const temporaryPath = `${databasePath}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify(current, null, 2)}\n`, "utf8");
+  renameSync(temporaryPath, databasePath);
 }
 
 function saveCollectorResult(result: CollectorResult): SaveCollectorResult {

@@ -1,5 +1,6 @@
-import { stableHash } from "@gamepulse/shared";
+﻿import { stableHash } from "@gamepulse/shared";
 import { loadConfig } from "./config.js";
+import { readCachedJson, readCachedText, writeCachedJson, writeCachedText } from "./modelCache.js";
 
 export interface ChatMessage {
   role: "system" | "user";
@@ -36,8 +37,15 @@ class OpenAICompatibleGateway implements ModelGateway {
   private readonly config = loadConfig();
 
   async complete(messages: ChatMessage[]): Promise<string | undefined> {
-    if (!this.config.openaiApiKey || !this.config.openaiChatModel) {
+    const model = this.config.openaiChatModel;
+    if (!this.config.openaiApiKey || !model) {
       return undefined;
+    }
+
+    const inputHash = stableHash(JSON.stringify(messages));
+    const cached = await readCachedText("openai", model, "chat", inputHash);
+    if (cached) {
+      return cached;
     }
 
     const response = await fetch(`${this.config.openaiBaseUrl}/chat/completions`, {
@@ -47,7 +55,7 @@ class OpenAICompatibleGateway implements ModelGateway {
         authorization: `Bearer ${this.config.openaiApiKey}`
       },
       body: JSON.stringify({
-        model: this.config.openaiChatModel,
+        model,
         messages,
         temperature: 0.2
       })
@@ -58,12 +66,23 @@ class OpenAICompatibleGateway implements ModelGateway {
     }
 
     const payload = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    return payload.choices?.[0]?.message?.content;
+    const content = payload.choices?.[0]?.message?.content;
+    if (content) {
+      await writeCachedText("openai", model, "chat", inputHash, content);
+    }
+    return content;
   }
 
   async embed(text: string): Promise<number[] | undefined> {
-    if (!this.config.openaiApiKey || !this.config.openaiEmbeddingModel) {
+    const model = this.config.openaiEmbeddingModel;
+    if (!this.config.openaiApiKey || !model) {
       return undefined;
+    }
+
+    const inputHash = stableHash(text);
+    const cached = await readCachedJson<number[]>("openai", model, "embedding", inputHash);
+    if (cached) {
+      return cached;
     }
 
     const response = await fetch(`${this.config.openaiBaseUrl}/embeddings`, {
@@ -73,7 +92,7 @@ class OpenAICompatibleGateway implements ModelGateway {
         authorization: `Bearer ${this.config.openaiApiKey}`
       },
       body: JSON.stringify({
-        model: this.config.openaiEmbeddingModel,
+        model,
         input: text
       })
     });
@@ -83,7 +102,11 @@ class OpenAICompatibleGateway implements ModelGateway {
     }
 
     const payload = (await response.json()) as { data?: Array<{ embedding?: number[] }> };
-    return payload.data?.[0]?.embedding;
+    const embedding = payload.data?.[0]?.embedding;
+    if (embedding) {
+      await writeCachedJson("openai", model, "embedding", inputHash, embedding);
+    }
+    return embedding;
   }
 }
 
@@ -91,6 +114,12 @@ class OllamaGateway implements ModelGateway {
   private readonly config = loadConfig();
 
   async complete(messages: ChatMessage[]): Promise<string | undefined> {
+    const inputHash = stableHash(JSON.stringify(messages));
+    const cached = await readCachedText("ollama", this.config.ollamaChatModel, "chat", inputHash);
+    if (cached) {
+      return cached;
+    }
+
     const prompt = messages.map((message) => `${message.role}: ${message.content}`).join("\n\n");
     const response = await fetch(`${this.config.ollamaBaseUrl}/api/generate`, {
       method: "POST",
@@ -107,10 +136,19 @@ class OllamaGateway implements ModelGateway {
     }
 
     const payload = (await response.json()) as { response?: string };
+    if (payload.response) {
+      await writeCachedText("ollama", this.config.ollamaChatModel, "chat", inputHash, payload.response);
+    }
     return payload.response;
   }
 
   async embed(text: string): Promise<number[] | undefined> {
+    const inputHash = stableHash(text);
+    const cached = await readCachedJson<number[]>("ollama", this.config.ollamaEmbeddingModel, "embedding", inputHash);
+    if (cached) {
+      return cached;
+    }
+
     const response = await fetch(`${this.config.ollamaBaseUrl}/api/embeddings`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -125,11 +163,9 @@ class OllamaGateway implements ModelGateway {
     }
 
     const payload = (await response.json()) as { embedding?: number[] };
+    if (payload.embedding) {
+      await writeCachedJson("ollama", this.config.ollamaEmbeddingModel, "embedding", inputHash, payload.embedding);
+    }
     return payload.embedding;
   }
 }
-
-export function embeddingCacheId(provider: string, model: string, input: string): string {
-  return stableHash(`${provider}:${model}:${input}`);
-}
-

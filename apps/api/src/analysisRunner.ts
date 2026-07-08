@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { AnalysisLabel, AnalysisRunInput, EntityAlias, EvidenceRef, ReportSummary, Sentiment, Topic } from "@gamepulse/shared";
+import type { AnalysisLabel, AnalysisRunInput, EntityAlias, EvidenceRef, ReportSummary, Sentiment, Topic, VersionPeriodMetrics } from "@gamepulse/shared";
 import { calculateRiskIndex, classifyCommentHeuristic, excerpt, PLATFORM_LABELS, topicLabel } from "@gamepulse/shared";
 import { query, withClient } from "./db.js";
 import { createModelGateway } from "./ai.js";
@@ -27,6 +27,17 @@ interface AggregateRow {
   average_severity: string;
   bug_count: string;
   churn_count: string;
+}
+
+interface ResolvedWindow {
+  label: string;
+  periodStart?: string;
+  periodEnd?: string;
+  releaseAt?: string;
+  beforeStart?: string;
+  beforeEnd?: string;
+  afterStart?: string;
+  afterEnd?: string;
 }
 
 export async function runAnalysis(runId: string): Promise<string> {
@@ -75,7 +86,7 @@ export async function runAnalysis(runId: string): Promise<string> {
   }
 
   await updateProgress(runId, processed, total, "aggregating");
-  const summary = await buildSummary(project.id, runId, window.periodStart, window.periodEnd, aliases);
+  const summary = await buildSummary(project.id, runId, window.periodStart, window.periodEnd, aliases, window);
   const markdown = await buildReportMarkdown(project.name, window.label, window.periodStart, window.periodEnd, summary);
   const reportId = randomUUID();
   const title = `${project.name} ${window.label} 舆情报告`;
@@ -96,7 +107,7 @@ export async function runAnalysis(runId: string): Promise<string> {
   return reportId;
 }
 
-function resolveWindow(input: AnalysisRunInput, windows: Array<{ id: string; name: string; releasedAt: string; beforeDays: number; afterDays: number }>) {
+function resolveWindow(input: AnalysisRunInput, windows: Array<{ id: string; name: string; releasedAt: string; beforeDays: number; afterDays: number }>): ResolvedWindow {
   const matched = input.versionWindowId ? windows.find((window) => window.id === input.versionWindowId) : undefined;
 
   if (matched) {
@@ -109,7 +120,12 @@ function resolveWindow(input: AnalysisRunInput, windows: Array<{ id: string; nam
     return {
       label: matched.name,
       periodStart: periodStart.toISOString(),
-      periodEnd: periodEnd.toISOString()
+      periodEnd: periodEnd.toISOString(),
+      releaseAt: releasedAt.toISOString(),
+      beforeStart: periodStart.toISOString(),
+      beforeEnd: releasedAt.toISOString(),
+      afterStart: releasedAt.toISOString(),
+      afterEnd: periodEnd.toISOString()
     };
   }
 
@@ -138,6 +154,7 @@ async function countComments(projectId: string, periodStart?: string, periodEnd?
     `SELECT count(*)::text
      FROM raw_items
      WHERE project_id = $1
+       AND (($2::timestamptz IS NULL AND $3::timestamptz IS NULL) OR posted_at IS NOT NULL)
        AND ($2::timestamptz IS NULL OR posted_at IS NULL OR posted_at >= $2::timestamptz)
        AND ($3::timestamptz IS NULL OR posted_at IS NULL OR posted_at <= $3::timestamptz)`,
     [projectId, periodStart ?? null, periodEnd ?? null]
@@ -152,6 +169,7 @@ async function loadCommentBatch(projectId: string, periodStart: string | undefin
      FROM raw_items
      WHERE project_id = $1
        AND id > $2
+       AND (($3::timestamptz IS NULL AND $4::timestamptz IS NULL) OR posted_at IS NOT NULL)
        AND ($3::timestamptz IS NULL OR posted_at IS NULL OR posted_at >= $3::timestamptz)
        AND ($4::timestamptz IS NULL OR posted_at IS NULL OR posted_at <= $4::timestamptz)
      ORDER BY id ASC
@@ -211,8 +229,42 @@ async function upsertLabels(labels: AnalysisLabel[]): Promise<void> {
   });
 }
 
-async function buildSummary(projectId: string, runId: string, periodStart: string | undefined, periodEnd: string | undefined, aliases: EntityAlias[]): Promise<ReportSummary> {
-  const stats = await query<{
+async function buildSummary(
+  projectId: string,
+  runId: string,
+  periodStart: string | undefined,
+  periodEnd: string | undefined,
+  aliases: EntityAlias[],
+  versionWindow?: ResolvedWindow
+): Promise<ReportSummary> {
+  const metrics = await loadPeriodMetrics(projectId, periodStart, periodEnd, true, !periodStart && !periodEnd);
+  const topicClusters = await createTopicClusters(projectId, runId, periodStart, periodEnd, "complaint");
+  const bugClusters = await createTopicClusters(projectId, runId, periodStart, periodEnd, "bug");
+  const entityHeat = aliases.length > 0 ? await loadEntityHeat(projectId, periodStart, periodEnd) : [];
+  const versionComparison = versionWindow?.releaseAt ? await buildVersionComparison(projectId, versionWindow) : undefined;
+
+  return {
+    totalComments: metrics.totalComments,
+    negativeRate: metrics.negativeRate,
+    bugRate: metrics.bugRate,
+    churnRiskRate: metrics.churnRiskRate,
+    riskIndex: metrics.riskIndex,
+    topComplaints: topicClusters,
+    topBugs: bugClusters,
+    entityHeat,
+    versionComparison
+  };
+}
+
+async function loadPeriodMetrics(
+  projectId: string,
+  periodStart: string | undefined,
+  periodEnd: string | undefined,
+  inclusiveEnd = false,
+  includeUndated = false
+): Promise<VersionPeriodMetrics> {
+  const endOperator = inclusiveEnd ? "<=" : "<";
+  const result = await query<{
     total: string;
     negative: string;
     bug: string;
@@ -228,32 +280,50 @@ async function buildSummary(projectId: string, runId: string, periodStart: strin
      FROM raw_items r
      JOIN analysis_labels l ON l.comment_id = r.id
      WHERE r.project_id = $1
+       AND (::boolean OR r.posted_at IS NOT NULL)
        AND ($2::timestamptz IS NULL OR r.posted_at IS NULL OR r.posted_at >= $2::timestamptz)
-       AND ($3::timestamptz IS NULL OR r.posted_at IS NULL OR r.posted_at <= $3::timestamptz)`,
-    [projectId, periodStart ?? null, periodEnd ?? null]
+       AND ($3::timestamptz IS NULL OR r.posted_at IS NULL OR r.posted_at ${endOperator} $3::timestamptz)`,
+    [projectId, periodStart ?? null, periodEnd ?? null, includeUndated]
   );
 
-  const firstStats = stats.rows[0];
-  const total = Number(firstStats?.total ?? 0);
-  const negative = Number(firstStats?.negative ?? 0);
-  const bug = Number(firstStats?.bug ?? 0);
-  const churn = Number(firstStats?.churn ?? 0);
-  const averageSeverity = Number(firstStats?.average_severity ?? 0);
-  const riskIndex = calculateRiskIndex({ total, negative, bug, churnRisk: churn, averageSeverity });
+  return metricsFromStats(result.rows[0]);
+}
 
-  const topicClusters = await createTopicClusters(projectId, runId, periodStart, periodEnd, "complaint");
-  const bugClusters = await createTopicClusters(projectId, runId, periodStart, periodEnd, "bug");
-  const entityHeat = aliases.length > 0 ? await loadEntityHeat(projectId, periodStart, periodEnd) : [];
+function metricsFromStats(row: { total?: string; negative?: string; bug?: string; churn?: string; average_severity?: string } | undefined): VersionPeriodMetrics {
+  const total = Number(row?.total ?? 0);
+  const negative = Number(row?.negative ?? 0);
+  const bug = Number(row?.bug ?? 0);
+  const churn = Number(row?.churn ?? 0);
+  const averageSeverity = Number(row?.average_severity ?? 0);
 
   return {
     totalComments: total,
     negativeRate: total > 0 ? negative / total : 0,
     bugRate: total > 0 ? bug / total : 0,
     churnRiskRate: total > 0 ? churn / total : 0,
-    riskIndex,
-    topComplaints: topicClusters,
-    topBugs: bugClusters,
-    entityHeat
+    riskIndex: calculateRiskIndex({ total, negative, bug, churnRisk: churn, averageSeverity })
+  };
+}
+
+async function buildVersionComparison(projectId: string, window: ResolvedWindow): Promise<ReportSummary["versionComparison"]> {
+  if (!window.releaseAt) {
+    return undefined;
+  }
+
+  const before = await loadPeriodMetrics(projectId, window.beforeStart, window.beforeEnd);
+  const after = await loadPeriodMetrics(projectId, window.afterStart, window.afterEnd, true);
+
+  return {
+    releaseAt: window.releaseAt,
+    before,
+    after,
+    delta: {
+      totalComments: after.totalComments - before.totalComments,
+      negativeRate: after.negativeRate - before.negativeRate,
+      bugRate: after.bugRate - before.bugRate,
+      churnRiskRate: after.churnRiskRate - before.churnRiskRate,
+      riskIndex: after.riskIndex - before.riskIndex
+    }
   };
 }
 
@@ -419,6 +489,7 @@ async function buildReportMarkdown(
         negativeRate: summary.negativeRate,
         bugRate: summary.bugRate,
         churnRiskRate: summary.churnRiskRate,
+        versionComparison: summary.versionComparison,
         topComplaints: summary.topComplaints.map((cluster) => ({ label: cluster.label, count: cluster.itemCount, severity: cluster.severity })),
         topBugs: summary.topBugs.map((cluster) => ({ label: cluster.label, count: cluster.itemCount, severity: cluster.severity }))
       })
@@ -441,6 +512,10 @@ async function buildReportMarkdown(
     "",
     modelSummary ? `> ${modelSummary.replace(/\n+/g, " ")}` : "> 当前报告基于本地启发式分类和聚类生成；建议优先查看高严重度簇的原文证据。",
     "",
+    "## 版本前后变化",
+    "",
+    renderVersionComparison(summary.versionComparison),
+    "",
     "## 高频抱怨",
     "",
     renderClusters(summary.topComplaints),
@@ -461,6 +536,21 @@ async function buildReportMarkdown(
   ];
 
   return lines.join("\n");
+}
+
+function renderVersionComparison(comparison: ReportSummary["versionComparison"]): string {
+  if (!comparison) {
+    return "未选择版本窗口，暂无发布前后对比。";
+  }
+
+  return [
+    `- 发布时间：${comparison.releaseAt}`,
+    `- 评论量变化：${signedNumber(comparison.delta.totalComments)} 条（发布前 ${comparison.before.totalComments} / 发布后 ${comparison.after.totalComments}）`,
+    `- 负面/混合占比变化：${signedPercent(comparison.delta.negativeRate)}（发布前 ${percent(comparison.before.negativeRate)} / 发布后 ${percent(comparison.after.negativeRate)}）`,
+    `- BUG 信号占比变化：${signedPercent(comparison.delta.bugRate)}（发布前 ${percent(comparison.before.bugRate)} / 发布后 ${percent(comparison.after.bugRate)}）`,
+    `- 流失风险占比变化：${signedPercent(comparison.delta.churnRiskRate)}（发布前 ${percent(comparison.before.churnRiskRate)} / 发布后 ${percent(comparison.after.churnRiskRate)}）`,
+    `- 舆情风险指数变化：${signedNumber(comparison.delta.riskIndex)}（发布前 ${comparison.before.riskIndex} / 发布后 ${comparison.after.riskIndex}）`
+  ].join("\n");
 }
 
 function renderClusters(clusters: ReportSummary["topComplaints"]): string {
@@ -508,6 +598,15 @@ function recommendationFor(topic: Topic, kind: "complaint" | "bug", churnCount: 
   return defaults[topic] ?? "安排负责人复核原文证据，判断是否需要版本修复、公告或客服话术。";
 }
 
+function signedNumber(value: number): string {
+  return value > 0 ? `+${value}` : String(value);
+}
+
+function signedPercent(value: number): string {
+  const rounded = Math.round(value * 1000) / 10;
+  return rounded > 0 ? `+${rounded}%` : `${rounded}%`;
+}
+
 function percent(value: number): string {
   return `${Math.round(value * 1000) / 10}%`;
 }
@@ -520,4 +619,3 @@ export async function failRun(runId: string, error: unknown): Promise<void> {
     [runId, error instanceof Error ? error.message : String(error)]
   );
 }
-

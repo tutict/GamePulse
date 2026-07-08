@@ -143,6 +143,27 @@ export interface TopicCluster {
   createdAt: string;
 }
 
+export interface VersionPeriodMetrics {
+  totalComments: number;
+  negativeRate: number;
+  bugRate: number;
+  churnRiskRate: number;
+  riskIndex: number;
+}
+
+export interface VersionComparison {
+  releaseAt: string;
+  before: VersionPeriodMetrics;
+  after: VersionPeriodMetrics;
+  delta: {
+    totalComments: number;
+    negativeRate: number;
+    bugRate: number;
+    churnRiskRate: number;
+    riskIndex: number;
+  };
+}
+
 export interface RiskSignal {
   label: string;
   count: number;
@@ -159,6 +180,7 @@ export interface ReportSummary {
   topComplaints: TopicCluster[];
   topBugs: TopicCluster[];
   entityHeat: Array<{ kind: EntityKind; canonical: string; count: number; negativeRate: number }>;
+  versionComparison?: VersionComparison;
 }
 
 export interface Report {
