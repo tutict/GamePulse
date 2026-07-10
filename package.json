@@ -8,24 +8,23 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run build -w @gamepulse/api && npm run build -w @gamepulse/web && npm run build -w @gamepulse/userscript",
+    "build": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run build -w @gamepulse/desktop && npm run build -w @gamepulse/mobile && npm run build -w @gamepulse/userscript",
+    "dev": "npm run desktop:dev",
     "desktop:build": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run build -w @gamepulse/desktop",
     "desktop:dev": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run dev -w @gamepulse/desktop",
     "desktop:dist": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run dist -w @gamepulse/desktop",
-    "dev": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && concurrently -n api,worker,web \"npm run dev -w @gamepulse/api\" \"npm run worker -w @gamepulse/api\" \"npm run dev -w @gamepulse/web\"",
-    "debug:start": "powershell -ExecutionPolicy Bypass -File scripts/start-debug.ps1",
-    "debug:start:desktop": "powershell -ExecutionPolicy Bypass -File scripts/start-debug.ps1 -Mode desktop",
-    "db:migrate": "npm run db:migrate -w @gamepulse/api",
-    "test": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && node scripts/run-tests.mjs",
-    "test:unit": "npm run test",
-    "bench:generate": "node scripts/generate-benchmark-data.mjs",
-    "typecheck": "npm run typecheck -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run typecheck -w @gamepulse/shared && npm run typecheck -w @gamepulse/api && npm run typecheck -w @gamepulse/web && npm run typecheck -w @gamepulse/desktop && npm run typecheck -w @gamepulse/mobile",
     "desktop:dist:windows": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run dist:windows -w @gamepulse/desktop",
+    "desktop:dist:windows:dir": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run dist:windows:dir -w @gamepulse/desktop",
+    "mobile:dev": "npm run dev -w @gamepulse/mobile",
     "mobile:sync:android": "npm run sync:android -w @gamepulse/mobile",
     "mobile:android:assemble": "npm run android:assemble -w @gamepulse/mobile",
     "mobile:android:bundle": "npm run android:bundle -w @gamepulse/mobile",
-    "desktop:dist:windows:dir": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run dist:windows:dir -w @gamepulse/desktop",
-    "mobile:open:android": "npm run open:android -w @gamepulse/mobile"
+    "mobile:open:android": "npm run open:android -w @gamepulse/mobile",
+    "migrate:postgres": "npm run build -w @gamepulse/shared && node scripts/export-postgres-to-gamepulse.mjs",
+    "test": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && node scripts/run-tests.mjs",
+    "test:unit": "npm run test",
+    "bench:sqlite-rag": "npm run build -w @gamepulse/shared && tsx apps/desktop/scripts/benchmark-sqlite-rag.ts",
+    "typecheck": "npm run typecheck -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run typecheck -w @gamepulse/shared && npm run typecheck -w @gamepulse/desktop && npm run typecheck -w @gamepulse/mobile && npm run typecheck -w @gamepulse/userscript"
   },
   "engines": {
     "node": ">=22"
@@ -41,7 +40,6 @@
     "@tailwindcss/vite": "^4.3.2",
     "@types/node": "^22.20.0",
     "@vitejs/plugin-react": "5.1.2",
-    "concurrently": "^9.2.3",
     "electron-vite": "5.0.0",
     "tailwindcss": "^4.3.2",
     "tsx": "^4.23.0",

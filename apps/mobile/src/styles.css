@@ -1,0 +1,71 @@
+@import "tailwindcss" source(none);
+@source "./";
+@source "../../../packages/ui/src";
+
+@theme inline {
+  --color-background: hsl(72 24% 91%);
+  --color-foreground: hsl(218 29% 16%);
+  --color-card: hsl(0 0% 100% / 0.82);
+  --color-card-foreground: hsl(218 29% 16%);
+  --color-primary: hsl(219 39% 15%);
+  --color-primary-foreground: hsl(210 40% 98%);
+  --color-secondary: hsl(76 21% 87%);
+  --color-secondary-foreground: hsl(218 29% 16%);
+  --color-muted: hsl(77 19% 94%);
+  --color-muted-foreground: hsl(220 12% 43%);
+  --color-accent: hsl(156 24% 84%);
+  --color-accent-foreground: hsl(218 29% 16%);
+  --color-destructive: hsl(10 59% 45%);
+  --color-destructive-foreground: hsl(210 40% 98%);
+  --color-border: hsl(218 29% 16% / 0.12);
+  --color-input: hsl(218 29% 16% / 0.16);
+  --color-ring: hsl(158 40% 32%);
+  --radius-md: 0.5rem;
+  --radius-lg: 0.5rem;
+}
+
+:root {
+  color: hsl(218 29% 16%);
+  background: hsl(72 24% 91%);
+  font-family: "Segoe UI", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-width: 320px;
+  background:
+    radial-gradient(circle at 10% 0%, hsl(156 34% 80% / 0.42), transparent 22rem),
+    hsl(72 24% 91%);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  letter-spacing: 0;
+}
+
+button,
+a,
+input,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  color: hsl(210 40% 98%);
+  background: hsl(158 40% 32%);
+}

@@ -1,25 +1,15 @@
-# GamePulse Architecture
+# Architecture
 
-## Runtime
+GamePulse is a local-first monorepo with two independent clients:
 
-GamePulse runs as a local Docker stack:
+- `apps/desktop`: Electron application for Windows, including browser collection, SQLite, local search, RAG, OpenAI-compatible models, and Ollama.
+- `apps/mobile`: standalone React and Capacitor Android application with SQLite, import/export, local search, evidence views, and remote RAG.
+- `packages/shared`: domain types, local-store contracts, RAG functions, and `.gamepulse` codec.
+- `packages/ui`: shared React components and application shell.
+- `packages/userscript`: visible-page NDJSON exporter.
 
-- `postgres`: Postgres 16 with pgvector for durable storage and future vector search.
-- `redis`: BullMQ queue backing analysis jobs.
-- `api`: Fastify service exposing local HTTP APIs.
-- `worker`: background analysis runner.
-- `web`: Vite dashboard.
-- `userscript`: optional Tampermonkey/Violentmonkey page collector that posts visible comments to `localhost`.
+Each client owns its SQLite database and implements the same `LocalStore` contract. Project exchange uses an unencrypted `.gamepulse` ZIP with a versioned manifest and SHA-256 hashes.
 
-## Data Flow
+The retrieval pipeline normalizes comments, builds safe FTS5 queries, applies Chinese token fallback, reranks evidence, limits duplicate sources, trims context, and generates citations. No embedding or device-side LLM is required in version 1.
 
-1. A project defines platform links, version windows, and entity aliases for roles, systems, modes, and versions.
-2. Data arrives through CSV/JSON import, Steam/Reddit connectors, or userscript batch ingestion.
-3. The API normalizes text, hashes author identity by default, de-duplicates by project/platform/content hash, and stores raw evidence.
-4. Analysis runs classify comments in chunks, cache labels, aggregate clusters in SQL, and generate a Chinese markdown report with evidence refs.
-5. The dashboard reads reports and lets users search original evidence.
-
-## Boundaries
-
-The first version does not store cookies, automate hidden account data, or claim true retention prediction. Player-loss risk is a public-opinion risk index derived from text signals.
-
+Credentials are platform-owned: Electron `safeStorage` on Windows and Android Keystore-backed secure storage on Android. Renderer code receives only redacted configuration state.

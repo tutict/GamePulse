@@ -2,7 +2,17 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow } from "electron";
 import { registerCollectorHandlers } from "./collector.js";
-import { initializeDesktopDatabase, registerDatabaseHandlers } from "./database.js";
+import {
+  initializeDesktopDatabase,
+  registerDatabaseHandlers,
+  shutdownDesktopDatabase
+} from "./database.js";
+import {
+  initializeModelServices,
+  registerModelHandlers,
+  shutdownModelServices
+} from "./modelIpc.js";
+import { registerProjectPackageHandlers } from "./projectPackageIpc.js";
 import { registerRagHandlers } from "./rag.js";
 import { isTrustedRendererUrl, openExternalIfSafe } from "./security.js";
 
@@ -42,18 +52,31 @@ function createMainWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
-  initializeDesktopDatabase();
-  registerCollectorHandlers();
-  registerDatabaseHandlers();
-  registerRagHandlers();
-  createMainWindow();
+app.whenReady()
+  .then(async () => {
+    await initializeDesktopDatabase();
+    initializeModelServices();
+    registerCollectorHandlers();
+    registerDatabaseHandlers();
+    registerProjectPackageHandlers();
+    registerRagHandlers();
+    registerModelHandlers();
+    createMainWindow();
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
-    }
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createMainWindow();
+      }
+    });
+  })
+  .catch((error) => {
+    console.error("Failed to initialize GamePulse desktop.", error);
+    app.quit();
   });
+
+app.on("before-quit", () => {
+  shutdownModelServices();
+  void shutdownDesktopDatabase();
 });
 
 app.on("window-all-closed", () => {

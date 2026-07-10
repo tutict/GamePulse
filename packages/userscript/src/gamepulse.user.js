@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         GamePulse 当前页采集器
+// @name         GamePulse 当前页评论导出器
 // @namespace    https://github.com/tutict/GamePulse
-// @version      0.1.0
-// @description  将当前可见社区评论采集到本地 GamePulse API。不会读取或保存 cookies。
+// @version      0.2.0
+// @description  将当前页面可见评论下载为 GamePulse 可导入的 NDJSON 文件，不访问本地服务。
 // @author       GamePulse
 // @match        https://www.bilibili.com/*
 // @match        https://*.bilibili.com/*
@@ -22,8 +22,6 @@
 (function gamePulseCollector() {
   "use strict";
 
-  const API_BASE = "http://localhost:4317";
-  const PROJECT_KEY = "gamepulse.projectId";
   const platform = detectPlatform(location.hostname);
 
   if (!platform) {
@@ -31,7 +29,7 @@
   }
 
   const button = document.createElement("button");
-  button.textContent = "采集到 GamePulse";
+  button.textContent = "下载 GamePulse NDJSON";
   button.type = "button";
   button.style.position = "fixed";
   button.style.right = "18px";
@@ -47,61 +45,24 @@
   button.style.boxShadow = "0 10px 30px rgba(0,0,0,.28)";
   document.body.appendChild(button);
 
-  button.addEventListener("click", async () => {
-    const projectId = getProjectId();
-
-    if (!projectId) {
-      return;
-    }
-
+  button.addEventListener("click", () => {
     const items = extractVisibleItems(platform);
 
     if (items.length === 0) {
-      alert("GamePulse: 当前页没有识别到可采集评论。");
+      alert("GamePulse：当前页面没有识别到可导出的评论。");
       return;
     }
 
-    button.textContent = `提交 ${items.length} 条...`;
+    const ndjson = `${items.map((item) => JSON.stringify(item)).join("\n")}\n`;
+    const fileName = `gamepulse-${platform}-${fileTimestamp(new Date())}.ndjson`;
+    downloadText(fileName, ndjson);
+    button.textContent = `已下载 ${items.length} 条`;
     button.disabled = true;
-
-    try {
-      const response = await fetch(`${API_BASE}/api/ingest/batch`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({ projectId, items })
-      });
-
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-
-      const result = await response.json();
-      button.textContent = `已新增 ${result.inserted}`;
-      setTimeout(() => {
-        button.textContent = "采集到 GamePulse";
-        button.disabled = false;
-      }, 1800);
-    } catch (error) {
-      console.error(error);
-      alert(`GamePulse 提交失败：${error instanceof Error ? error.message : String(error)}`);
-      button.textContent = "采集到 GamePulse";
+    setTimeout(() => {
+      button.textContent = "下载 GamePulse NDJSON";
       button.disabled = false;
-    }
+    }, 1800);
   });
-
-  function getProjectId() {
-    const current = localStorage.getItem(PROJECT_KEY);
-    const next = prompt("GamePulse 项目 ID", current || "");
-
-    if (!next) {
-      return "";
-    }
-
-    localStorage.setItem(PROJECT_KEY, next.trim());
-    return next.trim();
-  }
 
   function detectPlatform(hostname) {
     if (hostname.includes("bilibili.com")) return "bilibili";
@@ -117,6 +78,7 @@
     const selectors = selectorsFor(currentPlatform);
     const nodes = uniqueNodes(selectors.flatMap((selector) => Array.from(document.querySelectorAll(selector))));
     const title = textOf(document.querySelector("h1")) || document.title;
+    const collectedAt = new Date().toISOString();
     const items = nodes
       .map((node, index) => {
         const body = textOf(node);
@@ -133,6 +95,7 @@
           externalId: `${location.href}#visible-${index}`,
           postedAt: extractTimeNear(node),
           metadata: {
+            collectedAt,
             collector: "gamepulse-userscript",
             selectorHint: node.className ? String(node.className).slice(0, 120) : node.tagName
           }
@@ -188,12 +151,7 @@
 
   function extractTimeNear(node) {
     const timeNode = node.querySelector("time") || node.closest("article")?.querySelector("time");
-
-    if (timeNode && timeNode.getAttribute("datetime")) {
-      return timeNode.getAttribute("datetime");
-    }
-
-    return undefined;
+    return timeNode?.getAttribute("datetime") || undefined;
   }
 
   function dedupeItems(items) {
@@ -211,5 +169,21 @@
 
     return result;
   }
-})();
 
+  function downloadText(fileName, content) {
+    const blob = new Blob([content], { type: "application/x-ndjson;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.hidden = true;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  function fileTimestamp(value) {
+    return value.toISOString().replace(/[:.]/g, "-");
+  }
+})();

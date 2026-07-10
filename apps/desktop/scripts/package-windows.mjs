@@ -1,8 +1,17 @@
-import { cpSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rebuild } from "@electron/rebuild";
 
 const require = createRequire(import.meta.url);
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -13,8 +22,12 @@ const appPayloadDir = resolve(unpackedDir, "resources", "app");
 const isDirBuild = process.argv.includes("--dir");
 const productName = "\u6e38\u8109 GamePulse";
 const executableName = "GamePulse.exe";
+const electronVersion = "43.0.0";
+const runtimeDependencies = {
+  "better-sqlite3": require("better-sqlite3/package.json").version
+};
 
-packageUnpackedApp();
+await packageUnpackedApp();
 
 if (isDirBuild) {
   console.log(`Windows unpacked app written to: ${unpackedDir}`);
@@ -23,7 +36,7 @@ if (isDirBuild) {
 
 runElectronBuilderForInstallers();
 
-function packageUnpackedApp() {
+async function packageUnpackedApp() {
   const electronPackageDir = dirname(require.resolve("electron/package.json"));
   const electronDistDir = resolve(electronPackageDir, "dist");
   const electronExe = resolve(electronDistDir, "electron.exe");
@@ -52,6 +65,7 @@ function packageUnpackedApp() {
     renameSync(sourceExe, targetExe);
   }
 
+  rmSync(appPayloadDir, { recursive: true, force: true });
   mkdirSync(appPayloadDir, { recursive: true });
   cpSync(sourceOutDir, resolve(appPayloadDir, "out"), { recursive: true, force: true });
   writeFileSync(
@@ -63,13 +77,71 @@ function packageUnpackedApp() {
         private: true,
         type: "module",
         main: "./out/main/index.js",
-        productName
+        productName,
+        dependencies: runtimeDependencies
       },
       null,
       2
     ) + "\n",
     "utf8"
   );
+
+  console.log("Staging better-sqlite3 source...");
+  copyPackage("better-sqlite3");
+  console.log(`Building better-sqlite3 from source for Electron ${electronVersion}...`);
+  await rebuild({
+    buildPath: appPayloadDir,
+    projectRootPath: appPayloadDir,
+    electronVersion,
+    platform: "win32",
+    arch: "x64",
+    onlyModules: ["better-sqlite3"],
+    force: true,
+    mode: "sequential",
+    useCache: false,
+    buildFromSource: true
+  });
+  console.log("Electron native rebuild completed.");
+  copyPackage("bindings");
+  copyPackage("file-uri-to-path");
+
+  const nativeBinding = resolve(
+    appPayloadDir,
+    "node_modules",
+    "better-sqlite3",
+    "build",
+    "Release",
+    "better_sqlite3.node"
+  );
+  if (!existsSync(nativeBinding)) {
+    throw new Error(`Electron better-sqlite3 binding is missing after rebuild: ${nativeBinding}`);
+  }
+}
+
+function copyPackage(packageName) {
+  const packageJsonPath = findPackageJsonPath(packageName);
+  const sourceDirectory = dirname(packageJsonPath);
+  const targetDirectory = resolve(appPayloadDir, "node_modules", ...packageName.split("/"));
+  mkdirSync(dirname(targetDirectory), { recursive: true });
+  cpSync(sourceDirectory, targetDirectory, { recursive: true, force: true });
+}
+
+function findPackageJsonPath(packageName) {
+  let current = dirname(require.resolve(packageName));
+  const root = parse(current).root;
+
+  while (current !== root) {
+    const candidate = resolve(current, "package.json");
+    if (existsSync(candidate)) {
+      const packageJson = JSON.parse(readFileSync(candidate, "utf8"));
+      if (packageJson.name === packageName) {
+        return candidate;
+      }
+    }
+    current = dirname(current);
+  }
+
+  throw new Error(`Unable to locate package.json for runtime dependency: ${packageName}`);
 }
 
 function readDesktopVersion() {

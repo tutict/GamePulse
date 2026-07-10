@@ -1,3 +1,10 @@
+import type {
+  ModelMessage,
+  ModelStreamEvent,
+  Project,
+  ProjectMergeResult
+} from "@gamepulse/shared";
+
 export interface CollectorItem {
   body: string;
   platform: string;
@@ -47,6 +54,44 @@ export interface RagQueryResult {
   contextCharacterCount: number;
 }
 
+export interface ModelConfigStatus {
+  provider: "openai" | "ollama";
+  baseUrl: string;
+  model: string;
+  hasApiKey: boolean;
+  apiKeyHint?: string;
+}
+
+export interface ModelConfigInput {
+  provider: "openai" | "ollama";
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+}
+
+export interface ModelEventEnvelope {
+  requestId: string;
+  event: ModelStreamEvent;
+}
+
+export type ProjectPackageExportResult =
+  | { canceled: true }
+  | {
+      canceled: false;
+      filePath: string;
+      fileName: string;
+      projectId: string;
+      bytes: number;
+    };
+
+export type ProjectPackageImportResult =
+  | { canceled: true }
+  | ({
+      canceled: false;
+      filePath: string;
+      fileName: string;
+    } & ProjectMergeResult);
+
 export interface GamePulseBridge {
   platform: string;
   versions: {
@@ -61,8 +106,25 @@ export interface GamePulseBridge {
     getStats(): Promise<DatabaseStats>;
     saveCollectorResult(result: CollectorResult): Promise<SaveCollectorResult>;
   };
+  projects: {
+    list(): Promise<Project[]>;
+    exportPackage(projectId: string): Promise<ProjectPackageExportResult>;
+    importPackage(): Promise<ProjectPackageImportResult>;
+  };
   rag: {
-    query(input: { query: string; limit?: number }): Promise<RagQueryResult>;
+    query(input: { query: string; limit?: number; projectId?: string }): Promise<RagQueryResult>;
+  };
+  models: {
+    getStatus(): Promise<ModelConfigStatus>;
+    updateConfig(input: ModelConfigInput): Promise<ModelConfigStatus>;
+    start(input: {
+      requestId: string;
+      messages: ModelMessage[];
+      timeoutMs?: number;
+      temperature?: number;
+    }): Promise<{ completed: boolean }>;
+    cancel(requestId: string): Promise<{ cancelled: boolean }>;
+    onEvent(callback: (event: ModelEventEnvelope) => void): () => void;
   };
 }
 

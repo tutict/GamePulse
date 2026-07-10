@@ -20,9 +20,39 @@ contextBridge.exposeInMainWorld("gamepulse", {
       return ipcRenderer.invoke("database:save-collector-result", result);
     }
   },
+  projects: {
+    list() {
+      return ipcRenderer.invoke("projects:list");
+    },
+    exportPackage(projectId: string) {
+      return ipcRenderer.invoke("projects:export-package", projectId);
+    },
+    importPackage() {
+      return ipcRenderer.invoke("projects:import-package");
+    }
+  },
   rag: {
-    query(input: { query: string; limit?: number }) {
+    query(input: { query: string; limit?: number; projectId?: string }) {
       return ipcRenderer.invoke("rag:query", input);
+    }
+  },
+  models: {
+    getStatus() {
+      return ipcRenderer.invoke("models:get-status");
+    },
+    updateConfig(input: unknown) {
+      return ipcRenderer.invoke("models:update-config", input);
+    },
+    start(input: unknown) {
+      return ipcRenderer.invoke("models:start", input);
+    },
+    cancel(requestId: string) {
+      return ipcRenderer.invoke("models:cancel", requestId);
+    },
+    onEvent(callback: (event: unknown) => void) {
+      const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload);
+      ipcRenderer.on("models:event", listener);
+      return () => ipcRenderer.removeListener("models:event", listener);
     }
   }
 });

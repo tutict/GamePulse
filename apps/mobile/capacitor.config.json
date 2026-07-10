@@ -1,7 +1,7 @@
 {
   "appId": "cn.gamepulse.mobile",
-  "appName": "\u6e38\u8109 GamePulse",
-  "webDir": "../web/dist",
+  "appName": "游脉 GamePulse",
+  "webDir": "dist",
   "server": {
     "androidScheme": "https"
   }

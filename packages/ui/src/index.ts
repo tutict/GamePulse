@@ -1,4 +1,5 @@
 export * from "./lib/utils.js";
+export * from "./components/app-shell.js";
 export * from "./components/badge.js";
 export * from "./components/button.js";
 export * from "./components/card.js";

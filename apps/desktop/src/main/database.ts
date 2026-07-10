@@ -1,36 +1,15 @@
-import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { app, ipcMain } from "electron";
+import {
+  PLATFORMS,
+  type IngestItem,
+  type Platform,
+  type Project
+} from "@gamepulse/shared";
 import type { CollectorItem, CollectorResult } from "./collector.js";
+import { migrateLegacyJsonStore } from "./legacyMigration.js";
 import { assertTrustedIpcSender } from "./security.js";
-
-export interface StoredRawItem {
-  id: string;
-  projectId: string;
-  platform: string;
-  sourceUrl?: string;
-  sourceTitle?: string;
-  body: string;
-  bodyNorm: string;
-  collectedAt: string;
-  contentHash: string;
-  metadata: Record<string, unknown>;
-}
-
-interface StoredProject {
-  id: string;
-  name: string;
-  description: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface DesktopStoreFile {
-  version: 1;
-  projects: StoredProject[];
-  rawItems: StoredRawItem[];
-}
+import { SqliteLocalStore } from "./sqliteStore.js";
 
 interface SaveCollectorResult {
   accepted: number;
@@ -46,203 +25,109 @@ interface DatabaseStats {
   latestCollectedAt?: string;
 }
 
-let store: DesktopStoreFile | undefined;
+const collectorProjectId = "desktop-collector";
+const platformSet = new Set<string>(PLATFORMS);
+let store: SqliteLocalStore | undefined;
 
 export function registerDatabaseHandlers(): void {
-  ipcMain.handle("database:get-stats", (event) => {
+  ipcMain.handle("database:get-stats", async (event) => {
     assertTrustedIpcSender(event);
     return getDatabaseStats();
   });
-  ipcMain.handle("database:save-collector-result", (event, result: unknown) => {
+  ipcMain.handle("database:save-collector-result", async (event, result: unknown) => {
     assertTrustedIpcSender(event);
     return saveCollectorResult(validateCollectorResult(result));
   });
 }
 
-export function initializeDesktopDatabase(): void {
-  void getDesktopStore();
-}
+export async function initializeDesktopDatabase(): Promise<void> {
+  const userDataPath = app.getPath("userData");
+  const databasePath = join(userDataPath, "gamepulse.db");
+  const legacyPath = join(userDataPath, "gamepulse-store.json");
 
-export function getDesktopStore(): DesktopStoreFile {
-  if (!store) {
-    const databasePath = getDatabasePath();
-    mkdirSync(dirname(databasePath), { recursive: true });
-    store = readStore(databasePath);
-    persistStore();
+  try {
+    await migrateLegacyJsonStore({ databasePath, legacyPath });
+  } catch (error) {
+    console.error("Legacy GamePulse JSON migration failed; preserving the original file.", error);
   }
 
+  store = new SqliteLocalStore(databasePath);
+  await store.initialize();
+  await ensureCollectorProject(store);
+}
+
+export async function shutdownDesktopDatabase(): Promise<void> {
+  await store?.close();
+  store = undefined;
+}
+
+export function getDesktopStore(): SqliteLocalStore {
+  if (!store) {
+    throw new Error("Desktop database is not initialized");
+  }
   return store;
 }
 
-export function getAllRawItems(): StoredRawItem[] {
-  return getDesktopStore().rawItems;
-}
-
-export function getRecentRawItems(limit: number): StoredRawItem[] {
-  const items = getDesktopStore().rawItems;
-  return items.length > limit ? items.slice(items.length - limit) : items;
-}
-
-function getDatabasePath(): string {
-  return join(app.getPath("userData"), "gamepulse-store.json");
-}
-
-function readStore(databasePath: string): DesktopStoreFile {
-  if (!existsSync(databasePath)) {
-    return createEmptyStore();
-  }
-
-  try {
-    const parsed = JSON.parse(readFileSync(databasePath, "utf8")) as Partial<DesktopStoreFile>;
-    return {
-      version: 1,
-      projects: Array.isArray(parsed.projects) ? parsed.projects.map(validateStoredProject) : [],
-      rawItems: Array.isArray(parsed.rawItems) ? parsed.rawItems.map(validateStoredRawItem).filter((item): item is StoredRawItem => Boolean(item)) : []
-    };
-  } catch {
-    return createEmptyStore();
-  }
-}
-
-function createEmptyStore(): DesktopStoreFile {
-  return { version: 1, projects: [], rawItems: [] };
-}
-
-function persistStore(): void {
-  const current = getDesktopStore();
-  const databasePath = getDatabasePath();
-  const temporaryPath = `${databasePath}.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify(current, null, 2)}\n`, "utf8");
-  renameSync(temporaryPath, databasePath);
-}
-
-function saveCollectorResult(result: CollectorResult): SaveCollectorResult {
-  const current = getDesktopStore();
-  const projectId = ensureCollectorProject(current);
-  const now = new Date().toISOString();
-  const existingHashes = new Set(current.rawItems.map((item) => `${item.projectId}\u001f${item.platform}\u001f${item.contentHash}`));
-  let inserted = 0;
-
-  for (const item of result.items) {
-    const bodyNorm = normalizeWhitespace(item.body);
-    if (!bodyNorm) {
-      continue;
-    }
-
-    const platform = item.platform || result.platform || "import";
-    const contentHashValue = contentHash({ ...item, platform });
-    const uniqueKey = `${projectId}\u001f${platform}\u001f${contentHashValue}`;
-
-    if (existingHashes.has(uniqueKey)) {
-      continue;
-    }
-
-    current.rawItems.push({
-      id: randomUUID(),
-      projectId,
-      platform,
-      sourceUrl: item.sourceUrl || result.url || undefined,
-      sourceTitle: item.sourceTitle || result.title || undefined,
-      body: bodyNorm,
-      bodyNorm,
-      collectedAt: now,
-      contentHash: contentHashValue,
-      metadata: { selector: item.selector }
-    });
-    existingHashes.add(uniqueKey);
-    inserted += 1;
-  }
-
-  if (inserted > 0) {
-    persistStore();
-  }
-
-  const stats = getDatabaseStats();
+async function saveCollectorResult(result: CollectorResult): Promise<SaveCollectorResult> {
+  const currentStore = getDesktopStore();
+  const writeResult = await currentStore.ingestComments(
+    collectorProjectId,
+    result.items.map((item) => toIngestItem(item, result))
+  );
+  const stats = await currentStore.getStats();
 
   return {
-    accepted: result.items.length,
-    inserted,
-    databasePath: stats.databasePath,
-    totalItems: stats.rawItemCount
+    accepted: writeResult.accepted,
+    inserted: writeResult.inserted,
+    databasePath: stats.databasePath ?? "",
+    totalItems: stats.commentCount
   };
 }
 
-function getDatabaseStats(): DatabaseStats {
-  const current = getDesktopStore();
-  const latestCollectedAt = current.rawItems
-    .map((item) => item.collectedAt)
-    .filter(Boolean)
-    .sort()
-    .at(-1);
-
+async function getDatabaseStats(): Promise<DatabaseStats> {
+  const stats = await getDesktopStore().getStats();
   return {
-    databasePath: getDatabasePath(),
-    projectCount: current.projects.length,
-    rawItemCount: current.rawItems.length,
-    latestCollectedAt
+    databasePath: stats.databasePath ?? "",
+    projectCount: stats.projectCount,
+    rawItemCount: stats.commentCount,
+    latestCollectedAt: stats.latestCollectedAt
   };
 }
 
-function ensureCollectorProject(current: DesktopStoreFile): string {
-  const id = "desktop-collector";
-  const existing = current.projects.find((project) => project.id === id);
-
-  if (existing) {
-    return existing.id;
+async function ensureCollectorProject(currentStore: SqliteLocalStore): Promise<void> {
+  if (await currentStore.getProject(collectorProjectId)) {
+    return;
   }
 
   const now = new Date().toISOString();
-  current.projects.push({
-    id,
+  const project: Project = {
+    id: collectorProjectId,
     name: "Desktop Collector",
     description: "Rows captured by the Electron bundled Chromium collector.",
+    redditSubreddits: [],
+    redditKeywords: [],
+    sourceLinks: [],
+    versionWindows: [],
+    entityAliases: [],
     createdAt: now,
     updatedAt: now
-  });
-  persistStore();
-  return id;
+  };
+  await currentStore.saveProject(project);
 }
 
-function validateStoredProject(value: unknown): StoredProject {
-  if (!isRecord(value)) {
-    const now = new Date().toISOString();
-    return { id: randomUUID(), name: "Imported Project", description: "", createdAt: now, updatedAt: now };
-  }
-
-  const now = new Date().toISOString();
+function toIngestItem(item: CollectorItem, result: CollectorResult): IngestItem {
   return {
-    id: asString(value.id) || randomUUID(),
-    name: asString(value.name) || "Imported Project",
-    description: asString(value.description),
-    createdAt: asString(value.createdAt) || now,
-    updatedAt: asString(value.updatedAt) || now
+    platform: parsePlatform(item.platform || result.platform),
+    body: item.body,
+    sourceUrl: item.sourceUrl || result.url || undefined,
+    sourceTitle: item.sourceTitle || result.title || undefined,
+    metadata: { selector: item.selector }
   };
 }
 
-function validateStoredRawItem(value: unknown): StoredRawItem | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-
-  const body = normalizeWhitespace(asString(value.body));
-  if (!body) {
-    return undefined;
-  }
-
-  const platform = asString(value.platform) || "import";
-  const sourceUrl = asString(value.sourceUrl) || undefined;
-  return {
-    id: asString(value.id) || randomUUID(),
-    projectId: asString(value.projectId) || "desktop-collector",
-    platform,
-    sourceUrl,
-    sourceTitle: asString(value.sourceTitle) || undefined,
-    body,
-    bodyNorm: normalizeWhitespace(asString(value.bodyNorm) || body),
-    collectedAt: asString(value.collectedAt) || new Date().toISOString(),
-    contentHash: asString(value.contentHash) || createHash("sha256").update([platform, sourceUrl, body].join("\u001f")).digest("hex"),
-    metadata: isRecord(value.metadata) ? value.metadata : {}
-  };
+function parsePlatform(value: string): Platform {
+  const normalized = value.toLowerCase();
+  return platformSet.has(normalized) ? normalized as Platform : "import";
 }
 
 function validateCollectorResult(value: unknown): CollectorResult {
@@ -251,7 +136,6 @@ function validateCollectorResult(value: unknown): CollectorResult {
   }
 
   const items = Array.isArray(value.items) ? value.items.slice(0, 500) : [];
-
   return {
     url: asString(value.url),
     title: asString(value.title),
@@ -276,7 +160,7 @@ function validateCollectorItem(value: unknown): CollectorItem {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function asString(value: unknown): string {
@@ -285,14 +169,4 @@ function asString(value: unknown): string {
 
 function truncate(value: string, maxLength: number): string {
   return value.length > maxLength ? value.slice(0, maxLength) : value;
-}
-
-function normalizeWhitespace(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function contentHash(item: CollectorItem): string {
-  return createHash("sha256")
-    .update([item.platform, item.sourceUrl, normalizeWhitespace(item.body)].join("\u001f"))
-    .digest("hex");
 }

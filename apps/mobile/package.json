@@ -4,15 +4,36 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:web": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run build -w @gamepulse/web",
+    "build:web": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && vite build --configLoader runner",
     "sync:android": "npm run build:web && cap sync android",
     "open:android": "cap open android",
     "android:assemble": "npm run sync:android && node scripts/build-android.mjs assembleDebug",
     "android:bundle": "npm run sync:android && node scripts/build-android.mjs bundleRelease",
-    "typecheck": "node scripts/validate-config.mjs"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "vite --configLoader runner",
+    "build": "vite build --configLoader runner"
   },
   "dependencies": {
-    "@capacitor/core": "^8.4.1"
+    "@aparajita/capacitor-secure-storage": "^8.0.0",
+    "@capacitor-community/sqlite": "^8.1.0",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/share": "^8.0.1",
+    "@capawesome/capacitor-file-picker": "^8.0.3",
+    "@gamepulse/shared": "*",
+    "@gamepulse/ui": "*",
+    "lucide-react": "^1.23.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.2",
+    "tailwindcss": "^4.3.2",
+    "typescript": "^7.0.1-rc",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.9"
+  }
 }
