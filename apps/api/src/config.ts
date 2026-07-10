@@ -16,6 +16,14 @@ export interface AppConfig {
   ollamaBaseUrl: string;
   ollamaChatModel: string;
   ollamaEmbeddingModel: string;
+  pgPoolMax: number;
+  pgIdleTimeoutMs: number;
+  pgConnectTimeoutMs: number;
+  pgStatementTimeoutMs: number;
+  slowQueryMs: number;
+  workerConcurrency: number;
+  analysisBatchSize: number;
+  progressUpdateMs: number;
 }
 
 export function loadConfig(): AppConfig {
@@ -34,7 +42,20 @@ export function loadConfig(): AppConfig {
     openaiEmbeddingModel: process.env.OPENAI_EMBEDDING_MODEL,
     ollamaBaseUrl: process.env.OLLAMA_BASE_URL ?? "http://localhost:11434",
     ollamaChatModel: process.env.OLLAMA_CHAT_MODEL ?? "qwen2.5:7b",
-    ollamaEmbeddingModel: process.env.OLLAMA_EMBEDDING_MODEL ?? "nomic-embed-text"
+    ollamaEmbeddingModel: process.env.OLLAMA_EMBEDDING_MODEL ?? "nomic-embed-text",
+    pgPoolMax: positiveInteger("PG_POOL_MAX", 10),
+    pgIdleTimeoutMs: positiveInteger("PG_IDLE_TIMEOUT_MS", 30_000),
+    pgConnectTimeoutMs: positiveInteger("PG_CONNECT_TIMEOUT_MS", 5_000),
+    pgStatementTimeoutMs: positiveInteger("PG_STATEMENT_TIMEOUT_MS", 120_000),
+    slowQueryMs: positiveInteger("SLOW_QUERY_MS", 200),
+    workerConcurrency: positiveInteger("WORKER_CONCURRENCY", 1),
+    analysisBatchSize: positiveInteger("ANALYSIS_BATCH_SIZE", 2_500),
+    progressUpdateMs: positiveInteger("PROGRESS_UPDATE_MS", 2_000)
   };
+}
+
+function positiveInteger(name: string, fallback: number): number {
+  const parsed = Number(process.env[name] ?? fallback);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 

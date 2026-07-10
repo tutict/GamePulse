@@ -1,4 +1,5 @@
-﻿import { parse as parseCsvStream } from "csv-parse";
+import { parse as parseCsvStream } from "csv-parse";
+import { JSONParser } from "@streamparser/json";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { IngestItem, Platform } from "@gamepulse/shared";
 import { mapRowToIngestItem, parseImportPayload } from "./importers.js";
@@ -57,7 +58,7 @@ async function handleMultipartImport(request: FastifyRequest, reply: FastifyRepl
       return reply.code(404).send({ error: "Project not found" });
     }
 
-    const result = await importFile(projectId, defaultPlatform, part.filename ?? "", part.file, () => part.toBuffer());
+    const result = await importFile(projectId, defaultPlatform, part.filename ?? "", part.file);
     accepted += result.accepted;
     inserted += result.inserted;
     parsed += result.parsed;
@@ -70,61 +71,70 @@ async function handleMultipartImport(request: FastifyRequest, reply: FastifyRepl
   return { accepted, inserted, parsed };
 }
 
-async function importFile(
-  projectId: string,
-  defaultPlatform: Platform,
-  filename: string,
-  stream: NodeJS.ReadableStream,
-  readBuffer: () => Promise<Buffer>
-): Promise<ImportResult> {
-  if (filename.toLowerCase().endsWith(".json")) {
-    const buffer = await readBuffer();
-    const items = parseImportPayload("json", buffer.toString("utf8"), defaultPlatform);
-    const result = await insertIngestItems(projectId, items);
-    return { ...result, parsed: items.length };
+async function importFile(projectId: string, defaultPlatform: Platform, filename: string, stream: NodeJS.ReadableStream): Promise<ImportResult> {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".json") || lower.endsWith(".jsonl") || lower.endsWith(".ndjson")) {
+    return ingestJsonStream(projectId, defaultPlatform, stream, lower.endsWith(".jsonl") || lower.endsWith(".ndjson"));
   }
-
   return ingestCsvStream(projectId, defaultPlatform, stream);
 }
 
+async function ingestJsonStream(projectId: string, defaultPlatform: Platform, stream: NodeJS.ReadableStream, ndjson: boolean): Promise<ImportResult> {
+  const parser = new JSONParser({ paths: ndjson ? ["$"] : ["$.*"], separator: ndjson ? "\n" : undefined, keepStack: false });
+  const batch: IngestItem[] = [];
+  let pendingFlush: Promise<void> | undefined;
+  let accepted = 0;
+  let inserted = 0;
+  let parsed = 0;
+  const flush = async () => {
+    if (batch.length === 0) return;
+    const current = batch.splice(0, batch.length);
+    const result = await insertIngestItems(projectId, current);
+    accepted += result.accepted;
+    inserted += result.inserted;
+  };
+  parser.onValue = ({ value }) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+    parsed += 1;
+    const item = mapRowToIngestItem(value as Record<string, unknown>, defaultPlatform);
+    if (!item.body.trim()) return;
+    batch.push(item);
+    if (batch.length >= 10_000 && !pendingFlush) pendingFlush = flush();
+  };
+  for await (const chunk of stream as AsyncIterable<Buffer | string>) {
+    parser.write(chunk);
+    if (pendingFlush) { await pendingFlush; pendingFlush = undefined; }
+  }
+  parser.end();
+  if (pendingFlush) await pendingFlush;
+  await flush();
+  return { accepted, inserted, parsed };
+}
+
 async function ingestCsvStream(projectId: string, defaultPlatform: Platform, stream: NodeJS.ReadableStream): Promise<ImportResult> {
-  const parser = stream.pipe(
-    parseCsvStream({
-      bom: true,
-      columns: true,
-      skip_empty_lines: true,
-      trim: true
-    })
-  ) as AsyncIterable<Record<string, unknown>>;
+  const parser = stream.pipe(parseCsvStream({ bom: true, columns: true, skip_empty_lines: true, trim: true })) as AsyncIterable<Record<string, unknown>>;
   const batch: IngestItem[] = [];
   let accepted = 0;
   let inserted = 0;
   let parsed = 0;
-
   for await (const row of parser) {
     parsed += 1;
     const item = mapRowToIngestItem(row, defaultPlatform);
-    if (!item.body.trim()) {
-      continue;
-    }
-
+    if (!item.body.trim()) continue;
     batch.push(item);
-    if (batch.length >= 1000) {
+    if (batch.length >= 10_000) {
       const result = await insertIngestItems(projectId, batch.splice(0, batch.length));
       accepted += result.accepted;
       inserted += result.inserted;
     }
   }
-
   if (batch.length > 0) {
     const result = await insertIngestItems(projectId, batch);
     accepted += result.accepted;
     inserted += result.inserted;
   }
-
   return { accepted, inserted, parsed };
 }
-
 function readImportRequest(body: unknown): {
   projectId: string;
   format: "csv" | "json";

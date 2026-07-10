@@ -211,6 +211,7 @@ export interface AnalysisRun {
   progress: {
     processed: number;
     total: number;
+    reused: number;
     stage: string;
   };
   reportId?: string;

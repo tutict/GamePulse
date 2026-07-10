@@ -1,5 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
@@ -27,6 +28,7 @@ CREATE TABLE IF NOT EXISTS raw_items (
   author_hash TEXT,
   posted_at TIMESTAMPTZ,
   collected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  effective_at TIMESTAMPTZ GENERATED ALWAYS AS (COALESCE(posted_at, collected_at)) STORED,
   language TEXT,
   upvotes INTEGER,
   replies INTEGER,
@@ -37,7 +39,6 @@ CREATE TABLE IF NOT EXISTS raw_items (
 
 CREATE INDEX IF NOT EXISTS raw_items_project_posted_idx ON raw_items(project_id, posted_at DESC);
 CREATE INDEX IF NOT EXISTS raw_items_project_platform_idx ON raw_items(project_id, platform);
-CREATE INDEX IF NOT EXISTS raw_items_content_hash_idx ON raw_items(content_hash);
 CREATE INDEX IF NOT EXISTS raw_items_body_fts_idx ON raw_items USING GIN (to_tsvector('simple', body_norm));
 CREATE INDEX IF NOT EXISTS raw_items_body_trgm_idx ON raw_items USING GIN (lower(body_norm) gin_trgm_ops);
 
@@ -46,7 +47,7 @@ CREATE TABLE IF NOT EXISTS analysis_runs (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   status TEXT NOT NULL,
   input JSONB NOT NULL,
-  progress JSONB NOT NULL DEFAULT '{"processed":0,"total":0,"stage":"queued"}'::jsonb,
+  progress JSONB NOT NULL DEFAULT '{"processed":0,"total":0,"reused":0,"stage":"queued"}'::jsonb,
   report_id TEXT,
   error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -77,6 +78,16 @@ CREATE INDEX IF NOT EXISTS analysis_labels_sentiment_idx ON analysis_labels(sent
 CREATE INDEX IF NOT EXISTS analysis_labels_topic_idx ON analysis_labels(topic);
 CREATE INDEX IF NOT EXISTS analysis_labels_bug_idx ON analysis_labels(is_bug) WHERE is_bug = true;
 CREATE INDEX IF NOT EXISTS analysis_labels_churn_idx ON analysis_labels(is_churn_risk) WHERE is_churn_risk = true;
+
+CREATE TABLE IF NOT EXISTS analysis_entity_mentions (
+  comment_id TEXT NOT NULL REFERENCES raw_items(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  posted_at TIMESTAMPTZ,
+  kind TEXT NOT NULL,
+  canonical TEXT NOT NULL,
+  sentiment TEXT NOT NULL,
+  PRIMARY KEY (comment_id, kind, canonical)
+);
 
 CREATE TABLE IF NOT EXISTS topic_clusters (
   id TEXT PRIMARY KEY,
@@ -132,6 +143,3 @@ CREATE TABLE IF NOT EXISTS model_cache (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(provider, model, kind, input_hash)
 );
-
-CREATE INDEX IF NOT EXISTS model_cache_lookup_idx ON model_cache(provider, model, kind, input_hash);
-

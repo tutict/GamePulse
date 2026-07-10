@@ -87,21 +87,21 @@ export async function listReports(projectId?: string): Promise<Report[]> {
   return payload.reports;
 }
 
-export async function searchComments(input: { projectId: string; q?: string; platform?: string; sentiment?: string }) {
+export async function searchComments(input: {
+  projectId: string;
+  q?: string;
+  platform?: string;
+  sentiment?: string;
+  cursor?: { at: string; id: string };
+}) {
   const params = new URLSearchParams({ projectId: input.projectId, limit: "50" });
-
-  if (input.q) {
-    params.set("q", input.q);
+  if (input.q) params.set("q", input.q);
+  if (input.platform) params.set("platform", input.platform);
+  if (input.sentiment) params.set("sentiment", input.sentiment);
+  if (input.cursor) {
+    params.set("cursorAt", input.cursor.at);
+    params.set("cursorId", input.cursor.id);
   }
-
-  if (input.platform) {
-    params.set("platform", input.platform);
-  }
-
-  if (input.sentiment) {
-    params.set("sentiment", input.sentiment);
-  }
-
   return request<{
     comments: Array<{
       id: string;
@@ -123,5 +123,6 @@ export async function searchComments(input: { projectId: string; q?: string; pla
         entities: Array<{ kind: string; canonical: string }>;
       };
     }>;
+    nextCursor: { at: string; id: string } | null;
   }>(`/api/comments/search?${params.toString()}`);
 }

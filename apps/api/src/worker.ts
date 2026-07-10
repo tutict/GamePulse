@@ -2,6 +2,7 @@ import { Worker } from "bullmq";
 import { closePool, migrate } from "./db.js";
 import { failRun, runAnalysis } from "./analysisRunner.js";
 import { createRedisConnectionOptions, getQueueName, type AnalysisJobData } from "./queue.js";
+import { loadConfig } from "./config.js";
 
 await migrate();
 
@@ -15,7 +16,7 @@ const worker = new Worker<AnalysisJobData>(
       throw error;
     }
   },
-  { connection: createRedisConnectionOptions(), concurrency: 2 }
+  { connection: createRedisConnectionOptions(), concurrency: loadConfig().workerConcurrency }
 );
 
 worker.on("completed", (job) => {

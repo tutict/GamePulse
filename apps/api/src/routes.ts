@@ -1,16 +1,17 @@
-﻿import { randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import multipart from "@fastify/multipart";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { migrate, query } from "./db.js";
 import { handleImportRequest } from "./importService.js";
 import { createProject, getProject, insertIngestItems, listProjects, parsePlatform, toIso } from "./repository.js";
-import { enqueueAnalysisRun } from "./queue.js";
+import { enqueueAnalysisRun, QueueUnavailableError } from "./queue.js";
 import { fetchRedditPosts, fetchSteamReviews } from "./connectors.js";
 import { loadConfig } from "./config.js";
 import { registerHttpSecurity } from "./httpSecurity.js";
 import { rowToReport } from "./reportMapper.js";
 import { ingestItemSchema, projectSchema } from "./schemas.js";
+import { buildCommentSearchQuery } from "./commentSearch.js";
 
 const searchQuerySchema = z.object({
   projectId: z.string(),
@@ -19,7 +20,9 @@ const searchQuerySchema = z.object({
   sentiment: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
-  before: z.string().datetime().optional()
+  before: z.string().datetime().optional(),
+  cursorAt: z.string().datetime().optional(),
+  cursorId: z.string().optional()
 });
 
 const analysisRunSchema = z.object({
@@ -137,10 +140,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     await query(
       `INSERT INTO analysis_runs (id, project_id, status, input, progress)
        VALUES ($1,$2,'queued',$3,$4)`,
-      [runId, input.projectId, JSON.stringify(input), JSON.stringify({ processed: 0, total: 0, stage: "queued" })]
+      [runId, input.projectId, JSON.stringify(input), JSON.stringify({ processed: 0, total: 0, reused: 0, stage: "queued" })]
     );
-    const mode = await enqueueAnalysisRun(runId);
-    return reply.code(202).send({ runId, mode });
+    try {
+      const mode = await enqueueAnalysisRun(runId);
+      return reply.code(202).send({ runId, mode });
+    } catch (error) {
+      if (error instanceof QueueUnavailableError) {
+        return reply.code(503).send({ error: "queue_unavailable", runId });
+      }
+      throw error;
+    }
   });
 
   app.get("/api/analysis/runs/:runId", async (request, reply) => {
@@ -197,23 +207,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/comments/search", async (request) => {
     const params = searchQuerySchema.parse(request.query);
     const platform = parsePlatform(params.platform);
-    const result = await query(
-      `SELECT r.id, r.platform, r.source_url, r.source_title, r.body, r.posted_at, r.collected_at, r.language,
-              r.upvotes, r.replies, l.sentiment, l.topic, l.intent, l.severity, l.is_bug, l.is_churn_risk, l.entities
-       FROM raw_items r
-       LEFT JOIN analysis_labels l ON l.comment_id = r.id
-       WHERE r.project_id = $1
-         AND ($2::text IS NULL OR lower(r.body_norm) LIKE '%' || lower($2) || '%')
-         AND ($3::text IS NULL OR r.platform = $3)
-         AND ($4::text IS NULL OR l.sentiment = $4)
-         AND ($5::timestamptz IS NULL OR COALESCE(r.posted_at, r.collected_at) < $5::timestamptz)
-       ORDER BY COALESCE(r.posted_at, r.collected_at) DESC, r.id DESC
-       LIMIT $6 OFFSET $7`,
-      [params.projectId, params.q ?? null, platform ?? null, params.sentiment ?? null, params.before ?? null, params.limit, params.offset]
-    );
+    const search = buildCommentSearchQuery({ ...params, platform });
+    const result = await query(search.text, search.values, "comments.search");
+    const hasMore = result.rows.length > search.requestedLimit;
+    const rows = result.rows.slice(0, search.requestedLimit);
+    const lastRow = rows.at(-1);
 
     return {
-      comments: result.rows.map((row) => ({
+      comments: rows.map((row) => ({
         id: row.id,
         platform: row.platform,
         sourceUrl: row.source_url,
@@ -235,7 +236,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
               entities: row.entities
             }
           : undefined
-      }))
+      })),
+      nextCursor: hasMore && lastRow ? { at: toIso(lastRow.effective_at), id: lastRow.id } : null
     };
   });
 }

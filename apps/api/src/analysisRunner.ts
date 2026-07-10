@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import type { PoolClient } from "pg";
 import type { AnalysisLabel, AnalysisRunInput, EntityAlias, EvidenceRef, ReportSummary, Sentiment, Topic, VersionPeriodMetrics } from "@gamepulse/shared";
-import { calculateRiskIndex, classifyCommentHeuristic, excerpt, PLATFORM_LABELS, topicLabel } from "@gamepulse/shared";
-import { query, withClient } from "./db.js";
+import { calculateRiskIndex, classifyCommentHeuristic, excerpt, PLATFORM_LABELS, stableHash, topicLabel } from "@gamepulse/shared";
+import { loadConfig } from "./config.js";
+import { query, withTransaction } from "./db.js";
 import { createModelGateway } from "./ai.js";
 import { getProject, toIso } from "./repository.js";
 
@@ -9,6 +11,8 @@ interface RunRow {
   id: string;
   project_id: string;
   input: AnalysisRunInput;
+  status: string;
+  report_id?: string | null;
 }
 
 interface CommentRow {
@@ -18,15 +22,6 @@ interface CommentRow {
   body: string;
   posted_at?: Date | null;
   upvotes?: number | null;
-}
-
-interface AggregateRow {
-  topic: Topic;
-  sentiment: Sentiment;
-  item_count: string;
-  average_severity: string;
-  bug_count: string;
-  churn_count: string;
 }
 
 interface ResolvedWindow {
@@ -40,83 +35,95 @@ interface ResolvedWindow {
   afterEnd?: string;
 }
 
-export async function runAnalysis(runId: string): Promise<string> {
-  const runResult = await query<RunRow>("SELECT id, project_id, input FROM analysis_runs WHERE id = $1", [runId]);
-  const run = runResult.rows[0];
+interface ClassificationStatsRow {
+  total: string;
+  pending: string;
+}
 
+interface MetricsRow extends Record<string, string> {}
+
+interface ClusterRow {
+  kind: "complaint" | "bug";
+  topic: Topic;
+  sentiment: Sentiment;
+  item_count: string;
+  average_severity: string;
+  churn_count: string;
+  evidence: EvidenceRef[];
+}
+
+interface LabeledComment {
+  row: CommentRow;
+  label: AnalysisLabel;
+}
+
+export async function runAnalysis(runId: string): Promise<string | undefined> {
+  const run = await claimRun(runId);
   if (!run) {
-    throw new Error(`Analysis run not found: ${runId}`);
+    const existing = await query<RunRow>("SELECT id, status, report_id FROM analysis_runs WHERE id = $1", [runId], "analysis.existing");
+    return existing.rows[0]?.report_id ?? undefined;
   }
 
   const project = await getProject(run.project_id);
+  if (!project) throw new Error(`Project not found: ${run.project_id}`);
 
-  if (!project) {
-    throw new Error(`Project not found: ${run.project_id}`);
-  }
-
+  const config = loadConfig();
   const window = resolveWindow(run.input, project.versionWindows);
-  await markRunProcessing(runId);
+  const signature = buildClassificationSignature(project.entityAliases);
+  const stats = await loadClassificationStats(project.id, window.periodStart, window.periodEnd, signature);
+  const total = Number(stats.total);
+  const pending = Number(stats.pending);
+  const reused = total - pending;
+  const progress = createProgressReporter(runId, pending, reused, config.progressUpdateMs);
+  await progress.report(0, "classifying", true);
 
-  const total = await countComments(project.id, window.periodStart, window.periodEnd);
-  await updateProgress(runId, 0, total, "classifying");
-
-  const aliases = project.entityAliases;
   let processed = 0;
   let lastId = "";
-
   while (true) {
-    const rows = await loadCommentBatch(project.id, window.periodStart, window.periodEnd, lastId, 2500);
+    const rows = await loadCommentBatch(project.id, window.periodStart, window.periodEnd, signature, lastId, config.analysisBatchSize);
+    if (rows.length === 0) break;
 
-    if (rows.length === 0) {
-      break;
-    }
-
-    const labels = rows.map((row) => {
-      const label = classifyCommentHeuristic({ body: row.body }, aliases);
-      return {
-        ...label,
-        commentId: row.id
-      };
-    });
-
-    await upsertLabels(labels);
+    const labeled = rows.map((row): LabeledComment => ({
+      row,
+      label: { ...classifyCommentHeuristic({ body: row.body }, project.entityAliases), commentId: row.id, model: signature }
+    }));
+    await upsertLabeledComments(project.id, labeled);
     processed += rows.length;
-    lastId = rows[rows.length - 1]?.id ?? lastId;
-    await updateProgress(runId, processed, total, "classifying");
+    lastId = rows.at(-1)?.id ?? lastId;
+    await progress.report(processed, "classifying");
   }
 
-  await updateProgress(runId, processed, total, "aggregating");
-  const summary = await buildSummary(project.id, runId, window.periodStart, window.periodEnd, aliases, window);
+  await progress.report(processed, "aggregating", true);
+  const summary = await buildSummary(project.id, runId, window.periodStart, window.periodEnd, project.entityAliases, window);
   const markdown = await buildReportMarkdown(project.name, window.label, window.periodStart, window.periodEnd, summary);
-  const reportId = randomUUID();
-  const title = `${project.name} ${window.label} 舆情报告`;
+  return persistRunResult(runId, project.id, project.name, window, summary, markdown, processed, pending, reused);
+}
 
-  await query(
-    `INSERT INTO reports (id, run_id, project_id, title, period_start, period_end, markdown, summary)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-    [reportId, runId, project.id, title, window.periodStart ?? null, window.periodEnd ?? null, markdown, JSON.stringify(summary)]
-  );
+function buildClassificationSignature(aliases: EntityAlias[]): string {
+  return `heuristic-v2:${stableHash(JSON.stringify(aliases))}`;
+}
 
-  await query(
+async function claimRun(runId: string): Promise<RunRow | undefined> {
+  const result = await query<RunRow>(
     `UPDATE analysis_runs
-     SET status = 'completed', report_id = $2, progress = $3, completed_at = now()
-     WHERE id = $1`,
-    [runId, reportId, JSON.stringify({ processed, total, stage: "completed" })]
+     SET status = 'processing', started_at = COALESCE(started_at, now()), completed_at = NULL,
+         error = NULL, progress = $2
+     WHERE id = $1 AND status IN ('queued','failed')
+     RETURNING id, project_id, input, status, report_id`,
+    [runId, JSON.stringify({ processed: 0, total: 0, reused: 0, stage: "processing" })],
+    "analysis.claim"
   );
-
-  return reportId;
+  return result.rows[0];
 }
 
 function resolveWindow(input: AnalysisRunInput, windows: Array<{ id: string; name: string; releasedAt: string; beforeDays: number; afterDays: number }>): ResolvedWindow {
   const matched = input.versionWindowId ? windows.find((window) => window.id === input.versionWindowId) : undefined;
-
   if (matched) {
     const releasedAt = new Date(matched.releasedAt);
     const periodStart = new Date(releasedAt);
     periodStart.setUTCDate(periodStart.getUTCDate() - matched.beforeDays);
     const periodEnd = new Date(releasedAt);
     periodEnd.setUTCDate(periodEnd.getUTCDate() + matched.afterDays);
-
     return {
       label: matched.name,
       periodStart: periodStart.toISOString(),
@@ -128,344 +135,254 @@ function resolveWindow(input: AnalysisRunInput, windows: Array<{ id: string; nam
       afterEnd: periodEnd.toISOString()
     };
   }
-
-  return {
-    label: "自定义周期",
-    periodStart: input.periodStart,
-    periodEnd: input.periodEnd
-  };
+  return { label: "自定义周期", periodStart: input.periodStart, periodEnd: input.periodEnd };
 }
 
-async function markRunProcessing(runId: string): Promise<void> {
-  await query(
-    `UPDATE analysis_runs
-     SET status = 'processing', started_at = COALESCE(started_at, now()), progress = $2
-     WHERE id = $1`,
-    [runId, JSON.stringify({ processed: 0, total: 0, stage: "processing" })]
+async function loadClassificationStats(projectId: string, periodStart: string | undefined, periodEnd: string | undefined, signature: string): Promise<ClassificationStatsRow> {
+  const result = await query<ClassificationStatsRow>(
+    `SELECT count(*)::text AS total,
+            count(*) FILTER (WHERE l.comment_id IS NULL OR l.model <> $4)::text AS pending
+     FROM raw_items r
+     LEFT JOIN analysis_labels l ON l.comment_id = r.id
+     WHERE r.project_id = $1
+       AND (($2::timestamptz IS NULL AND $3::timestamptz IS NULL) OR r.posted_at IS NOT NULL)
+       AND ($2::timestamptz IS NULL OR r.posted_at >= $2::timestamptz)
+       AND ($3::timestamptz IS NULL OR r.posted_at <= $3::timestamptz)`,
+    [projectId, periodStart ?? null, periodEnd ?? null, signature],
+    "analysis.classification_stats"
   );
+  return result.rows[0] ?? { total: "0", pending: "0" };
 }
 
-async function updateProgress(runId: string, processed: number, total: number, stage: string): Promise<void> {
-  await query("UPDATE analysis_runs SET progress = $2 WHERE id = $1", [runId, JSON.stringify({ processed, total, stage })]);
-}
-
-async function countComments(projectId: string, periodStart?: string, periodEnd?: string): Promise<number> {
-  const result = await query<{ count: string }>(
-    `SELECT count(*)::text
-     FROM raw_items
-     WHERE project_id = $1
-       AND (($2::timestamptz IS NULL AND $3::timestamptz IS NULL) OR posted_at IS NOT NULL)
-       AND ($2::timestamptz IS NULL OR posted_at IS NULL OR posted_at >= $2::timestamptz)
-       AND ($3::timestamptz IS NULL OR posted_at IS NULL OR posted_at <= $3::timestamptz)`,
-    [projectId, periodStart ?? null, periodEnd ?? null]
-  );
-
-  return Number(result.rows[0]?.count ?? 0);
-}
-
-async function loadCommentBatch(projectId: string, periodStart: string | undefined, periodEnd: string | undefined, lastId: string, limit: number): Promise<CommentRow[]> {
+async function loadCommentBatch(projectId: string, periodStart: string | undefined, periodEnd: string | undefined, signature: string, lastId: string, limit: number): Promise<CommentRow[]> {
   const result = await query<CommentRow>(
-    `SELECT id, platform, source_url, body, posted_at, upvotes
-     FROM raw_items
-     WHERE project_id = $1
-       AND id > $2
-       AND (($3::timestamptz IS NULL AND $4::timestamptz IS NULL) OR posted_at IS NOT NULL)
-       AND ($3::timestamptz IS NULL OR posted_at IS NULL OR posted_at >= $3::timestamptz)
-       AND ($4::timestamptz IS NULL OR posted_at IS NULL OR posted_at <= $4::timestamptz)
-     ORDER BY id ASC
-     LIMIT $5`,
-    [projectId, lastId, periodStart ?? null, periodEnd ?? null, limit]
+    `SELECT r.id, r.platform, r.source_url, r.body, r.posted_at, r.upvotes
+     FROM raw_items r
+     LEFT JOIN analysis_labels l ON l.comment_id = r.id
+     WHERE r.project_id = $1 AND r.id > $2
+       AND (($3::timestamptz IS NULL AND $4::timestamptz IS NULL) OR r.posted_at IS NOT NULL)
+       AND ($3::timestamptz IS NULL OR r.posted_at >= $3::timestamptz)
+       AND ($4::timestamptz IS NULL OR r.posted_at <= $4::timestamptz)
+       AND (l.comment_id IS NULL OR l.model <> $5)
+     ORDER BY r.id ASC LIMIT $6`,
+    [projectId, lastId, periodStart ?? null, periodEnd ?? null, signature, limit],
+    "analysis.comment_batch"
   );
-
   return result.rows;
 }
 
-async function upsertLabels(labels: AnalysisLabel[]): Promise<void> {
-  if (labels.length === 0) {
-    return;
-  }
-
-  await withClient(async (client) => {
-    for (let index = 0; index < labels.length; index += 1000) {
-      const chunk = labels.slice(index, index + 1000);
+async function upsertLabeledComments(projectId: string, labeled: LabeledComment[]): Promise<void> {
+  if (labeled.length === 0) return;
+  await withTransaction(async (client) => {
+    for (let index = 0; index < labeled.length; index += 1000) {
+      const chunk = labeled.slice(index, index + 1000);
       const values: unknown[] = [];
-      const placeholders = chunk.map((label, chunkIndex) => {
+      const placeholders = chunk.map(({ label }, chunkIndex) => {
         const offset = chunkIndex * 11;
-        values.push(
-          label.commentId,
-          label.sentiment,
-          label.topic,
-          label.intent,
-          label.severity,
-          label.isBug,
-          label.isChurnRisk,
-          JSON.stringify(label.entities),
-          label.confidence,
-          label.rationale,
-          label.model
-        );
-
+        values.push(label.commentId, label.sentiment, label.topic, label.intent, label.severity, label.isBug, label.isChurnRisk,
+          JSON.stringify(label.entities), label.confidence, label.rationale, label.model);
         return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11})`;
       });
-
       await client.query(
-        `INSERT INTO analysis_labels (
-          comment_id, sentiment, topic, intent, severity, is_bug, is_churn_risk, entities, confidence, rationale, model
-        ) VALUES ${placeholders.join(",")}
-        ON CONFLICT (comment_id) DO UPDATE SET
-          sentiment = EXCLUDED.sentiment,
-          topic = EXCLUDED.topic,
-          intent = EXCLUDED.intent,
-          severity = EXCLUDED.severity,
-          is_bug = EXCLUDED.is_bug,
-          is_churn_risk = EXCLUDED.is_churn_risk,
-          entities = EXCLUDED.entities,
-          confidence = EXCLUDED.confidence,
-          rationale = EXCLUDED.rationale,
-          model = EXCLUDED.model`,
+        `INSERT INTO analysis_labels (comment_id, sentiment, topic, intent, severity, is_bug, is_churn_risk, entities, confidence, rationale, model)
+         VALUES ${placeholders.join(",")}
+         ON CONFLICT (comment_id) DO UPDATE SET sentiment=EXCLUDED.sentiment, topic=EXCLUDED.topic, intent=EXCLUDED.intent,
+           severity=EXCLUDED.severity, is_bug=EXCLUDED.is_bug, is_churn_risk=EXCLUDED.is_churn_risk,
+           entities=EXCLUDED.entities, confidence=EXCLUDED.confidence, rationale=EXCLUDED.rationale, model=EXCLUDED.model`,
         values
       );
+      const commentIds = chunk.map(({ row }) => row.id);
+      await client.query("DELETE FROM analysis_entity_mentions WHERE comment_id = ANY($1::text[])", [commentIds]);
+      await insertEntityMentions(client, projectId, chunk);
     }
   });
 }
 
-async function buildSummary(
-  projectId: string,
-  runId: string,
-  periodStart: string | undefined,
-  periodEnd: string | undefined,
-  aliases: EntityAlias[],
-  versionWindow?: ResolvedWindow
-): Promise<ReportSummary> {
-  const metrics = await loadPeriodMetrics(projectId, periodStart, periodEnd, true, !periodStart && !periodEnd);
-  const topicClusters = await createTopicClusters(projectId, runId, periodStart, periodEnd, "complaint");
-  const bugClusters = await createTopicClusters(projectId, runId, periodStart, periodEnd, "bug");
-  const entityHeat = aliases.length > 0 ? await loadEntityHeat(projectId, periodStart, periodEnd) : [];
-  const versionComparison = versionWindow?.releaseAt ? await buildVersionComparison(projectId, versionWindow) : undefined;
-
-  return {
-    totalComments: metrics.totalComments,
-    negativeRate: metrics.negativeRate,
-    bugRate: metrics.bugRate,
-    churnRiskRate: metrics.churnRiskRate,
-    riskIndex: metrics.riskIndex,
-    topComplaints: topicClusters,
-    topBugs: bugClusters,
-    entityHeat,
-    versionComparison
-  };
-}
-
-async function loadPeriodMetrics(
-  projectId: string,
-  periodStart: string | undefined,
-  periodEnd: string | undefined,
-  inclusiveEnd = false,
-  includeUndated = false
-): Promise<VersionPeriodMetrics> {
-  const endOperator = inclusiveEnd ? "<=" : "<";
-  const result = await query<{
-    total: string;
-    negative: string;
-    bug: string;
-    churn: string;
-    average_severity: string;
-  }>(
-    `SELECT
-       count(*)::text AS total,
-       count(*) FILTER (WHERE l.sentiment IN ('negative','mixed'))::text AS negative,
-       count(*) FILTER (WHERE l.is_bug)::text AS bug,
-       count(*) FILTER (WHERE l.is_churn_risk)::text AS churn,
-       COALESCE(avg(l.severity), 0)::text AS average_severity
-     FROM raw_items r
-     JOIN analysis_labels l ON l.comment_id = r.id
-     WHERE r.project_id = $1
-       AND (::boolean OR r.posted_at IS NOT NULL)
-       AND ($2::timestamptz IS NULL OR r.posted_at IS NULL OR r.posted_at >= $2::timestamptz)
-       AND ($3::timestamptz IS NULL OR r.posted_at IS NULL OR r.posted_at ${endOperator} $3::timestamptz)`,
-    [projectId, periodStart ?? null, periodEnd ?? null, includeUndated]
+async function insertEntityMentions(client: PoolClient, projectId: string, chunk: LabeledComment[]): Promise<void> {
+  const mentions = chunk.flatMap(({ row, label }) => label.entities.map((entity) => ({ row, label, entity })));
+  if (mentions.length === 0) return;
+  const values: unknown[] = [];
+  const placeholders = mentions.map(({ row, label, entity }, index) => {
+    const offset = index * 6;
+    values.push(row.id, projectId, row.posted_at ?? null, entity.kind, entity.canonical, label.sentiment);
+    return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6})`;
+  });
+  await client.query(
+    `INSERT INTO analysis_entity_mentions (comment_id, project_id, posted_at, kind, canonical, sentiment)
+     VALUES ${placeholders.join(",")}
+     ON CONFLICT (comment_id, kind, canonical) DO UPDATE SET sentiment=EXCLUDED.sentiment, posted_at=EXCLUDED.posted_at`,
+    values
   );
-
-  return metricsFromStats(result.rows[0]);
 }
 
-function metricsFromStats(row: { total?: string; negative?: string; bug?: string; churn?: string; average_severity?: string } | undefined): VersionPeriodMetrics {
-  const total = Number(row?.total ?? 0);
-  const negative = Number(row?.negative ?? 0);
-  const bug = Number(row?.bug ?? 0);
-  const churn = Number(row?.churn ?? 0);
-  const averageSeverity = Number(row?.average_severity ?? 0);
-
+function createProgressReporter(runId: string, total: number, reused: number, minimumIntervalMs: number) {
+  let lastAt = 0;
+  let lastPercent = -1;
   return {
-    totalComments: total,
-    negativeRate: total > 0 ? negative / total : 0,
-    bugRate: total > 0 ? bug / total : 0,
-    churnRiskRate: total > 0 ? churn / total : 0,
-    riskIndex: calculateRiskIndex({ total, negative, bug, churnRisk: churn, averageSeverity })
-  };
-}
-
-async function buildVersionComparison(projectId: string, window: ResolvedWindow): Promise<ReportSummary["versionComparison"]> {
-  if (!window.releaseAt) {
-    return undefined;
-  }
-
-  const before = await loadPeriodMetrics(projectId, window.beforeStart, window.beforeEnd);
-  const after = await loadPeriodMetrics(projectId, window.afterStart, window.afterEnd, true);
-
-  return {
-    releaseAt: window.releaseAt,
-    before,
-    after,
-    delta: {
-      totalComments: after.totalComments - before.totalComments,
-      negativeRate: after.negativeRate - before.negativeRate,
-      bugRate: after.bugRate - before.bugRate,
-      churnRiskRate: after.churnRiskRate - before.churnRiskRate,
-      riskIndex: after.riskIndex - before.riskIndex
+    async report(processed: number, stage: string, force = false): Promise<void> {
+      const now = Date.now();
+      const percent = total > 0 ? Math.floor((processed / total) * 100) : 100;
+      if (!force && now - lastAt < minimumIntervalMs && percent <= lastPercent) return;
+      lastAt = now;
+      lastPercent = percent;
+      await query("UPDATE analysis_runs SET progress = $2 WHERE id = $1", [runId, JSON.stringify({ processed, total, reused, stage })], "analysis.progress");
     }
   };
 }
 
-async function createTopicClusters(
-  projectId: string,
-  runId: string,
-  periodStart: string | undefined,
-  periodEnd: string | undefined,
-  kind: "complaint" | "bug"
-): Promise<ReportSummary["topComplaints"]> {
-  const condition = kind === "bug" ? "l.is_bug = true" : "l.sentiment IN ('negative','mixed')";
-  const aggregate = await query<AggregateRow>(
+async function buildSummary(projectId: string, runId: string, periodStart: string | undefined, periodEnd: string | undefined, aliases: EntityAlias[], window: ResolvedWindow): Promise<ReportSummary> {
+  const [metrics, clusters, entityHeat] = await Promise.all([
+    loadSummaryMetrics(projectId, periodStart, periodEnd, window),
+    loadClusters(projectId, runId, periodStart, periodEnd),
+    aliases.length > 0 ? loadEntityHeat(projectId, periodStart, periodEnd) : Promise.resolve([])
+  ]);
+  return {
+    totalComments: metrics.current.totalComments,
+    negativeRate: metrics.current.negativeRate,
+    bugRate: metrics.current.bugRate,
+    churnRiskRate: metrics.current.churnRiskRate,
+    riskIndex: metrics.current.riskIndex,
+    topComplaints: clusters.filter((cluster) => cluster.kind === "complaint"),
+    topBugs: clusters.filter((cluster) => cluster.kind === "bug"),
+    entityHeat,
+    versionComparison: metrics.versionComparison
+  };
+}
+
+async function loadSummaryMetrics(projectId: string, periodStart: string | undefined, periodEnd: string | undefined, window: ResolvedWindow): Promise<{ current: VersionPeriodMetrics; versionComparison?: ReportSummary["versionComparison"] }> {
+  const result = await query<MetricsRow>(
     `SELECT
-       l.topic,
-       CASE WHEN count(*) FILTER (WHERE l.sentiment = 'negative') >= count(*) / 2 THEN 'negative' ELSE 'mixed' END AS sentiment,
-       count(*)::text AS item_count,
-       COALESCE(avg(l.severity), 0)::text AS average_severity,
-       count(*) FILTER (WHERE l.is_bug)::text AS bug_count,
-       count(*) FILTER (WHERE l.is_churn_risk)::text AS churn_count
-     FROM raw_items r
-     JOIN analysis_labels l ON l.comment_id = r.id
+       count(*)::text AS current_total,
+       count(*) FILTER (WHERE l.sentiment IN ('negative','mixed'))::text AS current_negative,
+       count(*) FILTER (WHERE l.is_bug)::text AS current_bug,
+       count(*) FILTER (WHERE l.is_churn_risk)::text AS current_churn,
+       COALESCE(avg(l.severity),0)::text AS current_average_severity,
+       count(*) FILTER (WHERE $4::timestamptz IS NOT NULL AND r.posted_at >= $4 AND r.posted_at < $5)::text AS before_total,
+       count(*) FILTER (WHERE $4::timestamptz IS NOT NULL AND r.posted_at >= $4 AND r.posted_at < $5 AND l.sentiment IN ('negative','mixed'))::text AS before_negative,
+       count(*) FILTER (WHERE $4::timestamptz IS NOT NULL AND r.posted_at >= $4 AND r.posted_at < $5 AND l.is_bug)::text AS before_bug,
+       count(*) FILTER (WHERE $4::timestamptz IS NOT NULL AND r.posted_at >= $4 AND r.posted_at < $5 AND l.is_churn_risk)::text AS before_churn,
+       COALESCE(avg(l.severity) FILTER (WHERE $4::timestamptz IS NOT NULL AND r.posted_at >= $4 AND r.posted_at < $5),0)::text AS before_average_severity,
+       count(*) FILTER (WHERE $6::timestamptz IS NOT NULL AND r.posted_at >= $6 AND r.posted_at <= $7)::text AS after_total,
+       count(*) FILTER (WHERE $6::timestamptz IS NOT NULL AND r.posted_at >= $6 AND r.posted_at <= $7 AND l.sentiment IN ('negative','mixed'))::text AS after_negative,
+       count(*) FILTER (WHERE $6::timestamptz IS NOT NULL AND r.posted_at >= $6 AND r.posted_at <= $7 AND l.is_bug)::text AS after_bug,
+       count(*) FILTER (WHERE $6::timestamptz IS NOT NULL AND r.posted_at >= $6 AND r.posted_at <= $7 AND l.is_churn_risk)::text AS after_churn,
+       COALESCE(avg(l.severity) FILTER (WHERE $6::timestamptz IS NOT NULL AND r.posted_at >= $6 AND r.posted_at <= $7),0)::text AS after_average_severity
+     FROM raw_items r JOIN analysis_labels l ON l.comment_id = r.id
      WHERE r.project_id = $1
-       AND ${condition}
-       AND ($2::timestamptz IS NULL OR r.posted_at IS NULL OR r.posted_at >= $2::timestamptz)
-       AND ($3::timestamptz IS NULL OR r.posted_at IS NULL OR r.posted_at <= $3::timestamptz)
-     GROUP BY l.topic
-     ORDER BY count(*) DESC, avg(l.severity) DESC
-     LIMIT 8`,
-    [projectId, periodStart ?? null, periodEnd ?? null]
+       AND (($2::timestamptz IS NULL AND $3::timestamptz IS NULL) OR r.posted_at IS NOT NULL)
+       AND ($2::timestamptz IS NULL OR r.posted_at >= $2)
+       AND ($3::timestamptz IS NULL OR r.posted_at <= $3)`,
+    [projectId, periodStart ?? null, periodEnd ?? null, window.beforeStart ?? null, window.beforeEnd ?? null, window.afterStart ?? null, window.afterEnd ?? null],
+    "analysis.summary_metrics"
   );
+  const row = result.rows[0] ?? {};
+  const current = metricsFromPrefix(row, "current");
+  if (!window.releaseAt) return { current };
+  const before = metricsFromPrefix(row, "before");
+  const after = metricsFromPrefix(row, "after");
+  return { current, versionComparison: { releaseAt: window.releaseAt, before, after, delta: {
+    totalComments: after.totalComments - before.totalComments,
+    negativeRate: after.negativeRate - before.negativeRate,
+    bugRate: after.bugRate - before.bugRate,
+    churnRiskRate: after.churnRiskRate - before.churnRiskRate,
+    riskIndex: after.riskIndex - before.riskIndex
+  } } };
+}
 
-  const clusters: ReportSummary["topComplaints"] = [];
+function metricsFromPrefix(row: MetricsRow, prefix: string): VersionPeriodMetrics {
+  const total = Number(row[`${prefix}_total`] ?? 0);
+  const negative = Number(row[`${prefix}_negative`] ?? 0);
+  const bug = Number(row[`${prefix}_bug`] ?? 0);
+  const churn = Number(row[`${prefix}_churn`] ?? 0);
+  const averageSeverity = Number(row[`${prefix}_average_severity`] ?? 0);
+  return { totalComments: total, negativeRate: total ? negative / total : 0, bugRate: total ? bug / total : 0,
+    churnRiskRate: total ? churn / total : 0, riskIndex: calculateRiskIndex({ total, negative, bug, churnRisk: churn, averageSeverity }) };
+}
 
-  for (const row of aggregate.rows) {
-    const evidence = await loadEvidence(projectId, row.topic, kind, periodStart, periodEnd);
-    const label = topicLabel(row.topic);
+async function loadClusters(projectId: string, runId: string, periodStart?: string, periodEnd?: string): Promise<ReportSummary["topComplaints"]> {
+  const result = await query<ClusterRow>(
+    `WITH filtered AS MATERIALIZED (
+       SELECT r.id, r.platform, r.source_url, r.body, r.posted_at, r.upvotes,
+              l.topic, l.sentiment, l.severity, l.is_bug, l.is_churn_risk
+       FROM raw_items r JOIN analysis_labels l ON l.comment_id = r.id
+       WHERE r.project_id = $1
+         AND (($2::timestamptz IS NULL AND $3::timestamptz IS NULL) OR r.posted_at IS NOT NULL)
+         AND ($2::timestamptz IS NULL OR r.posted_at >= $2)
+         AND ($3::timestamptz IS NULL OR r.posted_at <= $3)
+         AND (l.sentiment IN ('negative','mixed') OR l.is_bug)
+     ), expanded AS (
+       SELECT 'complaint'::text AS kind, * FROM filtered WHERE sentiment IN ('negative','mixed')
+       UNION ALL SELECT 'bug'::text AS kind, * FROM filtered WHERE is_bug
+     ), aggregates AS (
+       SELECT kind, topic, CASE WHEN count(*) FILTER (WHERE sentiment='negative') >= count(*) / 2 THEN 'negative' ELSE 'mixed' END AS sentiment,
+              count(*) AS item_count, avg(severity) AS average_severity,
+              count(*) FILTER (WHERE is_churn_risk) AS churn_count
+       FROM expanded GROUP BY kind, topic
+     ), ranked_clusters AS (
+       SELECT *, row_number() OVER (PARTITION BY kind ORDER BY item_count DESC, average_severity DESC) AS cluster_rank FROM aggregates
+     ), ranked_evidence AS (
+       SELECT *, row_number() OVER (PARTITION BY kind, topic ORDER BY severity DESC, upvotes DESC NULLS LAST, posted_at DESC NULLS LAST) AS evidence_rank FROM expanded
+     )
+     SELECT c.kind, c.topic, c.sentiment, c.item_count::text, c.average_severity::text, c.churn_count::text,
+            COALESCE(jsonb_agg(jsonb_build_object('commentId',e.id,'platform',e.platform,'sourceUrl',e.source_url,'postedAt',e.posted_at,
+              'excerpt',left(e.body,240),'sentiment',e.sentiment,'severity',e.severity) ORDER BY e.evidence_rank)
+              FILTER (WHERE e.evidence_rank <= 5), '[]'::jsonb) AS evidence
+     FROM ranked_clusters c
+     LEFT JOIN ranked_evidence e ON e.kind=c.kind AND e.topic=c.topic AND e.evidence_rank <= 5
+     WHERE c.cluster_rank <= 8
+     GROUP BY c.kind,c.topic,c.sentiment,c.item_count,c.average_severity,c.churn_count,c.cluster_rank
+     ORDER BY c.kind,c.cluster_rank`,
+    [projectId, periodStart ?? null, periodEnd ?? null],
+    "analysis.clusters"
+  );
+  return result.rows.map((row) => {
     const itemCount = Number(row.item_count);
     const severity = Number(row.average_severity);
-    const summary = `${label}相关反馈共 ${itemCount} 条，平均严重度 ${severity.toFixed(1)}。`;
-    const recommendation = recommendationFor(row.topic, kind, Number(row.churn_count));
-    const cluster = {
-      id: randomUUID(),
-      projectId,
-      runId,
-      kind,
-      label,
-      itemCount,
-      sentiment: row.sentiment,
-      severity,
-      summary,
-      recommendation,
-      evidence,
-      createdAt: new Date().toISOString()
-    };
-
-    clusters.push(cluster);
-    await query(
-      `INSERT INTO topic_clusters (
-        id, project_id, run_id, kind, label, item_count, sentiment, severity, summary, recommendation, evidence
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [
-        cluster.id,
-        cluster.projectId,
-        cluster.runId,
-        cluster.kind,
-        cluster.label,
-        cluster.itemCount,
-        cluster.sentiment,
-        cluster.severity,
-        cluster.summary,
-        cluster.recommendation,
-        JSON.stringify(cluster.evidence)
-      ]
-    );
-  }
-
-  return clusters;
-}
-
-async function loadEvidence(projectId: string, topic: Topic, kind: "complaint" | "bug", periodStart: string | undefined, periodEnd: string | undefined): Promise<EvidenceRef[]> {
-  const condition = kind === "bug" ? "l.is_bug = true" : "l.sentiment IN ('negative','mixed')";
-  const result = await query<CommentRow & { sentiment: Sentiment; severity: number }>(
-    `SELECT r.id, r.platform, r.source_url, r.body, r.posted_at, r.upvotes, l.sentiment, l.severity
-     FROM raw_items r
-     JOIN analysis_labels l ON l.comment_id = r.id
-     WHERE r.project_id = $1
-       AND l.topic = $2
-       AND ${condition}
-       AND ($3::timestamptz IS NULL OR r.posted_at IS NULL OR r.posted_at >= $3::timestamptz)
-       AND ($4::timestamptz IS NULL OR r.posted_at IS NULL OR r.posted_at <= $4::timestamptz)
-     ORDER BY l.severity DESC, r.upvotes DESC NULLS LAST, r.posted_at DESC NULLS LAST
-     LIMIT 5`,
-    [projectId, topic, periodStart ?? null, periodEnd ?? null]
-  );
-
-  return result.rows.map((row) => ({
-    commentId: row.id,
-    platform: row.platform,
-    sourceUrl: row.source_url ?? undefined,
-    postedAt: row.posted_at ? toIso(row.posted_at) : undefined,
-    excerpt: excerpt(row.body),
-    sentiment: row.sentiment,
-    severity: row.severity
-  }));
-}
-
-async function loadEntityHeat(projectId: string, periodStart: string | undefined, periodEnd: string | undefined): Promise<ReportSummary["entityHeat"]> {
-  const result = await query<{
-    kind: string;
-    canonical: string;
-    count: string;
-    negative: string;
-  }>(
-    `SELECT
-       entity->>'kind' AS kind,
-       entity->>'canonical' AS canonical,
-       count(*)::text AS count,
-       count(*) FILTER (WHERE l.sentiment IN ('negative','mixed'))::text AS negative
-     FROM raw_items r
-     JOIN analysis_labels l ON l.comment_id = r.id
-     CROSS JOIN LATERAL jsonb_array_elements(l.entities) AS entity
-     WHERE r.project_id = $1
-       AND ($2::timestamptz IS NULL OR r.posted_at IS NULL OR r.posted_at >= $2::timestamptz)
-       AND ($3::timestamptz IS NULL OR r.posted_at IS NULL OR r.posted_at <= $3::timestamptz)
-     GROUP BY entity->>'kind', entity->>'canonical'
-     ORDER BY count(*) DESC
-     LIMIT 20`,
-    [projectId, periodStart ?? null, periodEnd ?? null]
-  );
-
-  return result.rows.map((row) => {
-    const count = Number(row.count);
-    const negative = Number(row.negative);
-    return {
-      kind: row.kind as ReportSummary["entityHeat"][number]["kind"],
-      canonical: row.canonical,
-      count,
-      negativeRate: count > 0 ? negative / count : 0
-    };
+    return { id: randomUUID(), projectId, runId, kind: row.kind, label: topicLabel(row.topic), itemCount, sentiment: row.sentiment,
+      severity, summary: `${topicLabel(row.topic)}相关反馈共 ${itemCount} 条，平均严重度 ${severity.toFixed(1)}。`,
+      recommendation: recommendationFor(row.topic, row.kind, Number(row.churn_count)), evidence: row.evidence ?? [], createdAt: new Date().toISOString() };
   });
 }
 
+async function loadEntityHeat(projectId: string, periodStart?: string, periodEnd?: string): Promise<ReportSummary["entityHeat"]> {
+  const result = await query<{ kind: string; canonical: string; count: string; negative: string }>(
+    `SELECT kind, canonical, count(*)::text AS count,
+            count(*) FILTER (WHERE sentiment IN ('negative','mixed'))::text AS negative
+     FROM analysis_entity_mentions
+     WHERE project_id=$1
+       AND (($2::timestamptz IS NULL AND $3::timestamptz IS NULL) OR posted_at IS NOT NULL)
+       AND ($2::timestamptz IS NULL OR posted_at >= $2)
+       AND ($3::timestamptz IS NULL OR posted_at <= $3)
+     GROUP BY kind,canonical ORDER BY count(*) DESC LIMIT 20`,
+    [projectId, periodStart ?? null, periodEnd ?? null],
+    "analysis.entity_heat"
+  );
+  return result.rows.map((row) => ({ kind: row.kind as ReportSummary["entityHeat"][number]["kind"], canonical: row.canonical,
+    count: Number(row.count), negativeRate: Number(row.count) ? Number(row.negative) / Number(row.count) : 0 }));
+}
+
+async function persistRunResult(runId: string, projectId: string, projectName: string, window: ResolvedWindow, summary: ReportSummary,
+  markdown: string, processed: number, total: number, reused: number): Promise<string> {
+  const reportId = randomUUID();
+  const clusters = [...summary.topComplaints, ...summary.topBugs];
+  await withTransaction(async (client) => {
+    if (clusters.length > 0) {
+      const values: unknown[] = [];
+      const placeholders = clusters.map((cluster, index) => {
+        const offset = index * 11;
+        values.push(cluster.id, cluster.projectId, cluster.runId, cluster.kind, cluster.label, cluster.itemCount, cluster.sentiment,
+          cluster.severity, cluster.summary, cluster.recommendation, JSON.stringify(cluster.evidence));
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11})`;
+      });
+      await client.query(`INSERT INTO topic_clusters (id,project_id,run_id,kind,label,item_count,sentiment,severity,summary,recommendation,evidence) VALUES ${placeholders.join(",")}`, values);
+    }
+    await client.query(`INSERT INTO reports (id,run_id,project_id,title,period_start,period_end,markdown,summary) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [reportId, runId, projectId, `${projectName} ${window.label} 舆情报告`, window.periodStart ?? null, window.periodEnd ?? null, markdown, JSON.stringify(summary)]);
+    await client.query(`UPDATE analysis_runs SET status='completed', report_id=$2, progress=$3, completed_at=now() WHERE id=$1`,
+      [runId, reportId, JSON.stringify({ processed, total, reused, stage: "completed" })]);
+  });
+  return reportId;
+}
 async function buildReportMarkdown(
   projectName: string,
   windowLabel: string,
@@ -615,7 +532,7 @@ export async function failRun(runId: string, error: unknown): Promise<void> {
   await query(
     `UPDATE analysis_runs
      SET status = 'failed', error = $2, completed_at = now()
-     WHERE id = $1`,
+     WHERE id = $1 AND status <> 'completed'`,
     [runId, error instanceof Error ? error.message : String(error)]
   );
 }

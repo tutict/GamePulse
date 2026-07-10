@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import type { IngestItem } from "@gamepulse/shared";
 import { insertIngestItems } from "./repository.js";
 
@@ -18,9 +19,11 @@ export interface RedditFetchInput {
 export async function fetchSteamReviews(input: SteamFetchInput): Promise<{ accepted: number; inserted: number }> {
   const maxPages = Math.min(Math.max(input.maxPages ?? 1, 1), 10);
   let cursor = "*";
-  const items: IngestItem[] = [];
+  let accepted = 0;
+  let inserted = 0;
 
   for (let page = 0; page < maxPages; page += 1) {
+    const pageItems: IngestItem[] = [];
     const url = new URL(`https://store.steampowered.com/appreviews/${input.appId}`);
     url.searchParams.set("json", "1");
     url.searchParams.set("filter", "recent");
@@ -31,7 +34,7 @@ export async function fetchSteamReviews(input: SteamFetchInput): Promise<{ accep
       url.searchParams.set("language", input.language);
     }
 
-    const response = await fetch(url);
+    const response = await fetchWithRetry(url);
 
     if (!response.ok) {
       throw new Error(`Steam reviews request failed with ${response.status}`);
@@ -54,7 +57,7 @@ export async function fetchSteamReviews(input: SteamFetchInput): Promise<{ accep
         continue;
       }
 
-      items.push({
+      pageItems.push({
         platform: "steam",
         externalId: review.recommendationid,
         sourceUrl: `https://steamcommunity.com/app/${input.appId}/reviews/`,
@@ -68,14 +71,13 @@ export async function fetchSteamReviews(input: SteamFetchInput): Promise<{ accep
       });
     }
 
-    if (!payload.cursor || payload.cursor === cursor) {
-      break;
-    }
-
+    const pageResult = await insertIngestItems(input.projectId, pageItems);
+    accepted += pageResult.accepted;
+    inserted += pageResult.inserted;
+    if (!payload.cursor || payload.cursor === cursor) break;
     cursor = payload.cursor;
   }
-
-  return insertIngestItems(input.projectId, items);
+  return { accepted, inserted };
 }
 
 export async function fetchRedditPosts(input: RedditFetchInput): Promise<{ accepted: number; inserted: number }> {
@@ -90,7 +92,7 @@ export async function fetchRedditPosts(input: RedditFetchInput): Promise<{ accep
     url.searchParams.set("restrict_sr", "1");
   }
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     headers: {
       "user-agent": "GamePulse/0.1 local-first community analysis"
     }
@@ -135,3 +137,18 @@ export async function fetchRedditPosts(input: RedditFetchInput): Promise<{ accep
   return insertIngestItems(input.projectId, items);
 }
 
+
+async function fetchWithRetry(url: URL, init?: RequestInit): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(url, { ...init, signal: AbortSignal.timeout(15_000) });
+      if (response.status !== 429 && response.status < 500) return response;
+      lastError = new Error(`Request failed with ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < 2) await delay(500 * 2 ** attempt + Math.floor(Math.random() * 250));
+  }
+  throw lastError instanceof Error ? lastError : new Error("Request failed");
+}
