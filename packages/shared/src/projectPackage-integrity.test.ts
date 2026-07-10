@@ -12,6 +12,15 @@ describe(".gamepulse package integrity", () => {
     await expect(codec.decode(zipSync(files))).rejects.toThrow("mismatch");
   });
 
+  it("rejects tampered payloads during streamed import", async () => {
+    const codec = new GamePulseProjectPackageCodec();
+    const files = unzipSync(await codec.encode(snapshot()));
+    files["comments.ndjson"] = strToU8('{"id":"tampered"}\n');
+    const bytes = zipSync(files);
+
+    await expect(codec.decodeStream(chunks(bytes, 5))).rejects.toThrow("mismatch");
+  });
+
   it("rejects unknown package versions", async () => {
     const codec = new GamePulseProjectPackageCodec();
     const files = unzipSync(await codec.encode(snapshot()));
@@ -42,4 +51,10 @@ function snapshot(): ProjectSnapshot {
     labels: [],
     reports: []
   };
+}
+
+async function* chunks(bytes: Uint8Array, size: number): AsyncIterable<Uint8Array> {
+  for (let offset = 0; offset < bytes.length; offset += size) {
+    yield bytes.slice(offset, offset + size);
+  }
 }

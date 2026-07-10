@@ -77,6 +77,11 @@ export function sanitizeMetadata(value: unknown): Record<string, unknown> {
   return sanitized;
 }
 
+export function isSensitivePackageKey(key: string): boolean {
+  const normalized = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  return /apikey|token|secret|credential|device|cache|(?:file|database|userdata)path/.test(normalized);
+}
+
 function sanitizeMetadataValue(value: unknown): unknown {
   if (typeof value === "string") {
     return value.length > 2048 ? value.slice(0, 2048) : value;
@@ -90,7 +95,8 @@ function sanitizeMetadataValue(value: unknown): unknown {
 }
 
 function isSensitiveMetadataKey(key: string): boolean {
-  return /author|avatar|nickname|nick|profile|user(name|id)?|uid|account|openid|email|phone|cookie|token|session/i.test(key);
+  return /author|avatar|nickname|nick|profile|user(name|id)?|uid|account|openid|email|phone|cookie|session/i.test(key)
+    || isSensitivePackageKey(key);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
