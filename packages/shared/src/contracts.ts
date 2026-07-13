@@ -1,5 +1,6 @@
 import type { AnalysisLabel, CommentRecord, IngestItem, Project, Report } from "./domain.js";
 import type { RagEvidenceCandidate } from "./rag.js";
+import type { ResearchRecord } from "./research/types.js";
 
 export interface LocalStoreStats {
   databasePath?: string;
@@ -40,6 +41,9 @@ export interface LocalStore {
   listProjects(): Promise<Project[]>;
   getProject(projectId: string): Promise<Project | undefined>;
   saveProject(project: Project): Promise<void>;
+  listResearches(): Promise<ResearchRecord[]>;
+  getResearch(researchId: string): Promise<ResearchRecord | undefined>;
+  saveResearch(research: ResearchRecord): Promise<void>;
   ingestComments(projectId: string, items: IngestItem[]): Promise<LocalStoreWriteResult>;
   searchEvidence(input: LocalStoreSearchInput): Promise<RagEvidenceCandidate[]>;
   exportProject(projectId: string): Promise<ProjectSnapshot>;

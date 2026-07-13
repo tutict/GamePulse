@@ -20,6 +20,7 @@ import {
   type ProjectMergeResult,
   type ProjectSnapshot,
   type RagEvidenceCandidate,
+  type ResearchRecord,
   type Report
 } from "@gamepulse/shared";
 
@@ -45,6 +46,10 @@ interface CommentRow {
 
 interface ProjectRow {
   project_json: string;
+}
+
+interface ResearchRow {
+  research_json: string;
 }
 
 interface CountRow {
@@ -138,6 +143,21 @@ const migrations = [
         created_at TEXT NOT NULL
       );
     `
+  },
+  {
+    version: 2,
+    sql: `
+      CREATE TABLE IF NOT EXISTS researches (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        research_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS researches_updated_idx
+        ON researches(updated_at DESC);
+    `
   }
 ] as const;
 
@@ -223,6 +243,39 @@ export class SqliteLocalStore implements LocalStore {
         projectJson: JSON.stringify(project),
         createdAt: project.createdAt,
         updatedAt: project.updatedAt
+      });
+  }
+
+  async listResearches(): Promise<ResearchRecord[]> {
+    const rows = this.requireDatabase()
+      .prepare("SELECT research_json FROM researches ORDER BY updated_at DESC, id")
+      .all() as ResearchRow[];
+    return rows.map((row) => parseJson<ResearchRecord>(row.research_json));
+  }
+
+  async getResearch(researchId: string): Promise<ResearchRecord | undefined> {
+    const row = this.requireDatabase()
+      .prepare("SELECT research_json FROM researches WHERE id = ?")
+      .get(researchId) as ResearchRow | undefined;
+    return row ? parseJson<ResearchRecord>(row.research_json) : undefined;
+  }
+
+  async saveResearch(research: ResearchRecord): Promise<void> {
+    this.requireDatabase()
+      .prepare(`
+        INSERT INTO researches(id, status, research_json, created_at, updated_at)
+        VALUES (@id, @status, @researchJson, @createdAt, @updatedAt)
+        ON CONFLICT(id) DO UPDATE SET
+          status = excluded.status,
+          research_json = excluded.research_json,
+          updated_at = excluded.updated_at
+      `)
+      .run({
+        id: research.id,
+        status: research.status,
+        researchJson: JSON.stringify(research),
+        createdAt: research.createdAt,
+        updatedAt: research.updatedAt
       });
   }
 

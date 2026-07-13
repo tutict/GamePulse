@@ -13,12 +13,14 @@ import {
   type Project,
   type ProjectMergeResult,
   type ProjectSnapshot,
-  type RagEvidenceCandidate
+  type RagEvidenceCandidate,
+  type ResearchRecord
 } from "@gamepulse/shared";
 
 export class MemoryLocalStore implements LocalStore {
   private readonly projects = new Map<string, Project>();
   private readonly comments = new Map<string, CommentRecord>();
+  private readonly researches = new Map<string, ResearchRecord>();
 
   async initialize(): Promise<void> {}
   async close(): Promise<void> {}
@@ -46,6 +48,21 @@ export class MemoryLocalStore implements LocalStore {
 
   async saveProject(project: Project): Promise<void> {
     this.projects.set(project.id, structuredClone(project));
+  }
+
+  async listResearches(): Promise<ResearchRecord[]> {
+    return Array.from(this.researches.values())
+      .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map((research) => structuredClone(research));
+  }
+
+  async getResearch(researchId: string): Promise<ResearchRecord | undefined> {
+    const research = this.researches.get(researchId);
+    return research ? structuredClone(research) : undefined;
+  }
+
+  async saveResearch(research: ResearchRecord): Promise<void> {
+    this.researches.set(research.id, structuredClone(research));
   }
 
   async ingestComments(projectId: string, items: IngestItem[]): Promise<LocalStoreWriteResult> {

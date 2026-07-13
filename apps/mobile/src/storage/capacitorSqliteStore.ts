@@ -21,6 +21,7 @@ import {
   type ProjectMergeResult,
   type ProjectSnapshot,
   type RagEvidenceCandidate,
+  type ResearchRecord,
   type Report
 } from "@gamepulse/shared";
 
@@ -183,8 +184,21 @@ const schema = `
     created_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS researches (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    research_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS researches_updated_idx
+    ON researches(updated_at DESC);
+
   INSERT OR IGNORE INTO schema_migrations(version, applied_at)
   VALUES (1, datetime('now'));
+  INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+  VALUES (2, datetime('now'));
 `;
 
 interface CountRow extends Record<string, unknown> {
@@ -286,6 +300,42 @@ export class CapacitorSqliteLocalStore implements LocalStore {
   async saveProject(project: Project): Promise<void> {
     this.requireInitialized();
     await this.saveProjectRow(project);
+  }
+
+  async listResearches(): Promise<ResearchRecord[]> {
+    this.requireInitialized();
+    const rows = await this.driver.query<JsonRow>(
+      "SELECT research_json AS value FROM researches ORDER BY updated_at DESC, id"
+    );
+    return rows.map((row) => JSON.parse(row.value) as ResearchRecord);
+  }
+
+  async getResearch(researchId: string): Promise<ResearchRecord | undefined> {
+    this.requireInitialized();
+    const [row] = await this.driver.query<JsonRow>(
+      "SELECT research_json AS value FROM researches WHERE id = ?",
+      [researchId]
+    );
+    return row ? JSON.parse(row.value) as ResearchRecord : undefined;
+  }
+
+  async saveResearch(research: ResearchRecord): Promise<void> {
+    this.requireInitialized();
+    await this.driver.run(
+      `INSERT INTO researches(id, status, research_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         status = excluded.status,
+         research_json = excluded.research_json,
+         updated_at = excluded.updated_at`,
+      [
+        research.id,
+        research.status,
+        JSON.stringify(research),
+        research.createdAt,
+        research.updatedAt
+      ]
+    );
   }
 
   async ingestComments(projectId: string, items: IngestItem[]): Promise<LocalStoreWriteResult> {

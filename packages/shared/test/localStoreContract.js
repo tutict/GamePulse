@@ -8,6 +8,9 @@ export function runLocalStoreContract(name, createStore) {
       const project = sampleProject();
       await source.saveProject(project);
 
+      const research = sampleResearch();
+      await source.saveResearch(research);
+
       const first = await source.ingestComments(project.id, [
         {
           platform: "steam",
@@ -46,6 +49,8 @@ export function runLocalStoreContract(name, createStore) {
         projectCount: 1,
         commentCount: 2
       });
+      expect(await source.getResearch(research.id)).toEqual(research);
+      expect(await source.listResearches()).toEqual([research]);
 
       await source.close();
       await destination.close();
@@ -64,6 +69,21 @@ function sampleProject() {
     sourceLinks: [],
     versionWindows: [],
     entityAliases: [],
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function sampleResearch() {
+  const now = "2026-07-13T00:00:00.000Z";
+  return {
+    id: `research-${crypto.randomUUID()}`,
+    request: { gameName: "幻兽帕鲁", focus: "联机稳定性", periodDays: 90 },
+    status: "completed",
+    sources: [],
+    evidence: [],
+    exclusions: [],
+    reports: [],
     createdAt: now,
     updatedAt: now
   };
