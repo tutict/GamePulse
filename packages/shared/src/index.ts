@@ -7,3 +7,7 @@ export * from "./projectPackage.js";
 export * from "./research/types.js";
 export * from "./research/contracts.js";
 export * from "./research/memoryRepository.js";
+export * from "./research/fixtureCollector.js";
+export * from "./research/reportGenerator.js";
+export * from "./research/followUp.js";
+export * from "./research/orchestrator.js";

@@ -1,11 +1,18 @@
 import type {
   ResearchEvidence,
+  ResearchIdentityCandidate,
   ResearchRecord,
   ResearchRequest,
   ResearchSource,
   SentimentReportVersion
 } from "./types.js";
 
+export class ResearchIdentityAmbiguousError extends Error {
+  constructor(readonly candidates: ResearchIdentityCandidate[]) {
+    super("Game identity is ambiguous");
+    this.name = "ResearchIdentityAmbiguousError";
+  }
+}
 export interface ResearchRepository {
   listResearches(): Promise<ResearchRecord[]>;
   getResearch(researchId: string): Promise<ResearchRecord | undefined>;
