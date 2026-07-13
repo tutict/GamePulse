@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Activity,
   Bot,
@@ -55,7 +55,7 @@ const navigation = [
   { id: "rag", label: "问答", icon: <Bot className="size-5" /> },
   { id: "evidence", label: "证据", icon: <FileSearch className="size-5" /> },
   { id: "settings", label: "设置", icon: <Settings2 className="size-5" /> }
-] satisfies Array<{ id: ViewId; label: string; icon: React.ReactNode }>;
+] satisfies Array<{ id: ViewId; label: string; icon: ReactNode }>;
 
 export function App() {
   const [view, setView] = useState<ViewId>("projects");
@@ -259,6 +259,7 @@ export function App() {
         <SearchScreen
           busy={busy}
           evidence={evidence}
+          onImport={() => setView("import")}
           onQueryChange={setSearchQuery}
           onSearch={handleSearch}
           query={searchQuery}
@@ -268,13 +269,20 @@ export function App() {
         <RagScreen
           busy={busy}
           configured={modelStatus?.hasApiKey ?? false}
+          onConfigure={() => setView("settings")}
           onQueryChange={setRagQuery}
           onRun={handleRag}
           query={ragQuery}
           result={ragResult}
         />
       ) : null}
-      {view === "evidence" ? <EvidenceScreen evidence={evidence} /> : null}
+      {view === "evidence" ? (
+        <EvidenceScreen
+          evidence={evidence}
+          onImport={() => setView("import")}
+          onSearch={() => setView("search")}
+        />
+      ) : null}
       {view === "settings" ? (
         <SettingsScreen
           busy={busy}
@@ -371,6 +379,7 @@ function SearchScreen(props: {
   busy: boolean;
   query: string;
   evidence: RankedRagEvidence[];
+  onImport: () => void;
   onQueryChange: (value: string) => void;
   onSearch: () => Promise<void>;
 }) {
@@ -385,7 +394,11 @@ function SearchScreen(props: {
           </Button>
         </CardContent>
       </Card>
-      <EvidenceList evidence={props.evidence} />
+      <EvidenceList
+        action={<Button onClick={props.onImport} type="button" variant="secondary"><Import className="size-4" />导入评论</Button>}
+        evidence={props.evidence}
+        text="还没有可展示的证据。先导入评论数据，再执行搜索。"
+      />
     </div>
   );
 }
@@ -395,6 +408,7 @@ function RagScreen(props: {
   configured: boolean;
   query: string;
   result?: MobileRagResult;
+  onConfigure: () => void;
   onQueryChange: (value: string) => void;
   onRun: () => Promise<void>;
 }) {
@@ -402,8 +416,11 @@ function RagScreen(props: {
     <div className="grid gap-4">
       <ScreenHeading title="RAG 问答" description="本地检索证据，远程模型只接收裁剪后的证据上下文。" />
       {!props.configured ? (
-        <div className="rounded-md border border-destructive/25 bg-destructive/10 p-4 text-sm text-destructive">
-          请先在设置中保存远程模型 API Key。
+        <div className="flex flex-col gap-3 rounded-md border border-destructive/25 bg-destructive/10 p-4 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
+          <span>请先在设置中保存远程模型 API Key。</span>
+          <Button onClick={props.onConfigure} type="button" variant="outline">
+            <Settings2 className="size-4" />去设置
+          </Button>
         </div>
       ) : null}
       <Card>
@@ -430,11 +447,24 @@ function RagScreen(props: {
   );
 }
 
-function EvidenceScreen({ evidence }: { evidence: RankedRagEvidence[] }) {
+function EvidenceScreen(props: {
+  evidence: RankedRagEvidence[];
+  onImport: () => void;
+  onSearch: () => void;
+}) {
   return (
     <div className="grid gap-4">
       <ScreenHeading title="证据" description="展示最近一次搜索或问答使用的排序、来源与原文摘录。" />
-      <EvidenceList evidence={evidence} />
+      <EvidenceList
+        action={
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+            <Button onClick={props.onImport} type="button" variant="secondary"><Import className="size-4" />导入评论</Button>
+            <Button onClick={props.onSearch} type="button"><Search className="size-4" />去搜索</Button>
+          </div>
+        }
+        evidence={props.evidence}
+        text="尚无证据。导入评论后，可以先搜索关键词或运行问答生成引用证据。"
+      />
     </div>
   );
 }
@@ -498,13 +528,13 @@ function SettingsScreen(props: {
   );
 }
 
-function EvidenceList({ evidence }: { evidence: RankedRagEvidence[] }) {
-  if (evidence.length === 0) {
-    return <EmptyState text="尚无证据。先导入数据并执行搜索或问答。" />;
+function EvidenceList(props: { evidence: RankedRagEvidence[]; text?: string; action?: ReactNode }) {
+  if (props.evidence.length === 0) {
+    return <EmptyState action={props.action} text={props.text ?? "尚无证据。先导入数据并执行搜索或问答。"} />;
   }
   return (
     <div className="grid gap-3">
-      {evidence.map((item, index) => (
+      {props.evidence.map((item, index) => (
         <article className="rounded-md border border-border bg-card p-4" key={item.id}>
           <div className="flex items-center justify-between gap-3 text-xs font-semibold text-muted-foreground">
             <span>[E{index + 1}] {item.platform}</span>
@@ -538,11 +568,12 @@ function Metric(props: { label: string; value: string | number }) {
   );
 }
 
-function EmptyState({ text }: { text: string }) {
+function EmptyState(props: { text: string; action?: ReactNode }) {
   return (
     <div className="rounded-md border border-dashed border-border bg-muted/35 p-5 text-center text-sm text-muted-foreground">
       <Database className="mx-auto mb-2 size-5" />
-      {text}
+      <p className="mx-auto mb-0 mt-0 max-w-md leading-6">{props.text}</p>
+      {props.action ? <div className="mt-4">{props.action}</div> : null}
     </div>
   );
 }
