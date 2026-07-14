@@ -28,6 +28,7 @@ export function SentimentReport(props: {
   evidence: EvidenceView[];
   followUpAnswer?: string;
   followUpBusy?: boolean;
+  busy?: boolean;
   onUpdateResearch?: () => void;
   onAskFollowUp?: (question: string) => void;
   onExcludeEvidence?: (evidenceId: string, reason: string) => void;
@@ -72,7 +73,7 @@ export function SentimentReport(props: {
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           {props.onUpdateResearch ? (
-            <Button className="h-11" onClick={props.onUpdateResearch} type="button" variant="outline">
+            <Button className="h-11" disabled={props.busy} onClick={props.onUpdateResearch} type="button" variant="outline">
               <RefreshCw aria-hidden="true" />
               更新研究
             </Button>

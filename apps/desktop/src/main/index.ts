@@ -14,6 +14,11 @@ import {
 } from "./modelIpc.js";
 import { registerProjectPackageHandlers } from "./projectPackageIpc.js";
 import { registerRagHandlers } from "./rag.js";
+import {
+  initializeResearchServices,
+  registerResearchHandlers,
+  shutdownResearchServices
+} from "./researchIpc.js";
 import { isTrustedRendererUrl, openExternalIfSafe } from "./security.js";
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
@@ -23,10 +28,10 @@ function createMainWindow(): void {
   const window = new BrowserWindow({
     width: 1440,
     height: 960,
-    minWidth: 1120,
-    minHeight: 720,
+    minWidth: 360,
+    minHeight: 600,
     title: "GamePulse",
-    backgroundColor: "#0f172a",
+    backgroundColor: "#e9eadf",
     webPreferences: {
       preload: join(currentDir, "../preload/index.mjs"),
       contextIsolation: true,
@@ -56,10 +61,12 @@ app.whenReady()
   .then(async () => {
     await initializeDesktopDatabase();
     initializeModelServices();
+    initializeResearchServices();
     registerCollectorHandlers();
     registerDatabaseHandlers();
     registerProjectPackageHandlers();
     registerRagHandlers();
+    registerResearchHandlers();
     registerModelHandlers();
     createMainWindow();
 
@@ -76,6 +83,7 @@ app.whenReady()
 
 app.on("before-quit", () => {
   shutdownModelServices();
+  shutdownResearchServices();
   void shutdownDesktopDatabase();
 });
 

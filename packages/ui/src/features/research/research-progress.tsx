@@ -5,6 +5,7 @@ import {
   CircleAlert,
   CircleHelp,
   LoaderCircle,
+  RefreshCw,
   XCircle
 } from "lucide-react";
 import { Button } from "../../components/button.js";
@@ -29,10 +30,12 @@ export function ResearchProgress(props: {
   stage: ResearchStageView;
   sources: SourceStatusView[];
   canCancel: boolean;
+  canRegenerate?: boolean;
   identityCandidates?: IdentityCandidateView[];
   error?: string;
   onCancel?: () => void;
   onChooseIdentity?: (candidateId: string) => void;
+  onRegenerateReport?: () => void;
 }) {
   const currentIndex = stageSequence.findIndex((item) => item.id === props.stage.id);
   const covered = props.sources.filter((source) => source.status === "covered").length;
@@ -52,11 +55,21 @@ export function ResearchProgress(props: {
             </p>
           ) : null}
         </div>
-        {props.canCancel ? (
-          <Button className="h-11 shrink-0" onClick={props.onCancel} type="button" variant="outline">
-            <XCircle aria-hidden="true" />
-            取消研究
-          </Button>
+        {props.canCancel || props.canRegenerate ? (
+          <div className="flex flex-col gap-2 sm:flex-row">
+            {props.canRegenerate ? (
+              <Button className="h-11 shrink-0" onClick={props.onRegenerateReport} type="button">
+                <RefreshCw aria-hidden="true" />
+                重新生成报告
+              </Button>
+            ) : null}
+            {props.canCancel ? (
+              <Button className="h-11 shrink-0" onClick={props.onCancel} type="button" variant="outline">
+                <XCircle aria-hidden="true" />
+                取消研究
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </header>
 

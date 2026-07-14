@@ -1,4 +1,4 @@
-import { ArrowRight, Clock3, FlaskConical, KeyRound } from "lucide-react";
+import { ArrowRight, Clock3, FlaskConical, KeyRound, LoaderCircle } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Badge } from "../../components/badge.js";
 import { Button } from "../../components/button.js";
@@ -10,6 +10,7 @@ export function ResearchStart(props: {
   recent: ResearchHistoryItem[];
   mode: "fixture" | "live";
   credentialsReady: boolean;
+  busy?: boolean;
   onStart?: (request: { gameName: string; focus?: string }) => void;
   onOpenResearch?: (researchId: string) => void;
 }) {
@@ -91,12 +92,16 @@ export function ResearchStart(props: {
           </div>
           <Button
             className="h-11 w-full sm:w-auto"
-            disabled={!gameName.trim()}
+            disabled={!gameName.trim() || props.busy}
             size="lg"
             type="submit"
           >
-            开始研究
-            <ArrowRight aria-hidden="true" />
+            {props.busy ? (
+              <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
+            ) : (
+              <ArrowRight aria-hidden="true" />
+            )}
+            {props.busy ? "正在开始" : "开始研究"}
           </Button>
         </div>
       </form>

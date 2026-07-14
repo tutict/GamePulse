@@ -36,7 +36,41 @@ contextBridge.exposeInMainWorld("gamepulse", {
       return ipcRenderer.invoke("rag:query", input);
     }
   },
-  models: {
+  research: {
+    list() {
+      return ipcRenderer.invoke("research:list");
+    },
+    get(researchId: string) {
+      return ipcRenderer.invoke("research:get", researchId);
+    },
+    start(request: { gameName: string; focus?: string }) {
+      return ipcRenderer.invoke("research:start", request);
+    },
+    cancel(researchId: string) {
+      return ipcRenderer.invoke("research:cancel", researchId);
+    },
+    continueIdentity(researchId: string, candidateId: string) {
+      return ipcRenderer.invoke("research:continue-identity", { researchId, candidateId });
+    },
+    refresh(researchId: string) {
+      return ipcRenderer.invoke("research:refresh", researchId);
+    },
+    excludeEvidence(researchId: string, evidenceId: string, reason: string) {
+      return ipcRenderer.invoke("research:exclude-evidence", {
+        researchId,
+        evidenceId,
+        reason
+      });
+    },
+    regenerate(researchId: string) {
+      return ipcRenderer.invoke("research:regenerate", researchId);
+    },
+    onEvent(callback: (record: unknown) => void) {
+      const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload);
+      ipcRenderer.on("research:event", listener);
+      return () => ipcRenderer.removeListener("research:event", listener);
+    }
+  },  models: {
     getStatus() {
       return ipcRenderer.invoke("models:get-status");
     },

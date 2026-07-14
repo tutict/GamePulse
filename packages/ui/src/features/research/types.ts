@@ -114,6 +114,7 @@ export type ResearchWorkspaceModel =
       recent: ResearchHistoryItem[];
       mode: "fixture" | "live";
       credentialsReady: boolean;
+      busy?: boolean;
     }
   | {
       screen: "progress";
@@ -124,6 +125,7 @@ export type ResearchWorkspaceModel =
       canCancel: boolean;
       identityCandidates?: IdentityCandidateView[];
       error?: string;
+      canRegenerate?: boolean;
     }
   | {
       screen: "report";
@@ -131,6 +133,7 @@ export type ResearchWorkspaceModel =
       evidence: EvidenceView[];
       followUpAnswer?: string;
       followUpBusy?: boolean;
+      busy?: boolean;
     }
   | { screen: "history"; items: ResearchHistoryItem[] }
   | { screen: "settings"; settings: ResearchSettingsView };
@@ -143,6 +146,7 @@ export interface ResearchWorkspaceProps {
   onChooseIdentity?: (candidateId: string) => void;
   onOpenResearch?: (researchId: string) => void;
   onUpdateResearch?: () => void;
+  onRegenerateReport?: () => void;
   onAskFollowUp?: (question: string) => void;
   onExcludeEvidence?: (evidenceId: string, reason: string) => void;
   onSaveSettings?: (settings: ResearchSettingsInput) => void;

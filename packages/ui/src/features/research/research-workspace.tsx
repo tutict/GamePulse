@@ -50,6 +50,7 @@ function renderScreen(props: ResearchWorkspaceProps) {
   if (model.screen === "start") {
     return (
       <ResearchStart
+        busy={model.busy}
         credentialsReady={model.credentialsReady}
         mode={model.mode}
         onOpenResearch={props.onOpenResearch}
@@ -62,12 +63,14 @@ function renderScreen(props: ResearchWorkspaceProps) {
     return (
       <ResearchProgress
         canCancel={model.canCancel}
+        canRegenerate={model.canRegenerate}
         error={model.error}
         focus={model.focus}
         gameName={model.gameName}
         identityCandidates={model.identityCandidates}
         onCancel={props.onCancel}
         onChooseIdentity={props.onChooseIdentity}
+        onRegenerateReport={props.onRegenerateReport}
         sources={model.sources}
         stage={model.stage}
       />
@@ -76,6 +79,7 @@ function renderScreen(props: ResearchWorkspaceProps) {
   if (model.screen === "report") {
     return (
       <SentimentReport
+        busy={model.busy}
         evidence={model.evidence}
         followUpAnswer={model.followUpAnswer}
         followUpBusy={model.followUpBusy}

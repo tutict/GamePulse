@@ -189,7 +189,7 @@ export function ResearchSettings(props: {
               variant="outline"
             >
               <Download aria-hidden="true" />
-              导出研究数据
+              导出旧项目包
             </Button>
           </div>
           {props.settings.advancedData.status ? (

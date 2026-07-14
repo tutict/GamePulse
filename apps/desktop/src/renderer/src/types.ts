@@ -2,7 +2,8 @@ import type {
   ModelMessage,
   ModelStreamEvent,
   Project,
-  ProjectMergeResult
+  ProjectMergeResult,
+  ResearchRecord
 } from "@gamepulse/shared";
 
 export interface CollectorItem {
@@ -114,7 +115,21 @@ export interface GamePulseBridge {
   rag: {
     query(input: { query: string; limit?: number; projectId?: string }): Promise<RagQueryResult>;
   };
-  models: {
+  research: {
+    list(): Promise<ResearchRecord[]>;
+    get(researchId: string): Promise<ResearchRecord | undefined>;
+    start(request: { gameName: string; focus?: string }): Promise<ResearchRecord>;
+    cancel(researchId: string): Promise<{ cancelled: boolean }>;
+    continueIdentity(researchId: string, candidateId: string): Promise<ResearchRecord>;
+    refresh(researchId: string): Promise<ResearchRecord>;
+    excludeEvidence(
+      researchId: string,
+      evidenceId: string,
+      reason: string
+    ): Promise<ResearchRecord>;
+    regenerate(researchId: string): Promise<ResearchRecord>;
+    onEvent(callback: (record: ResearchRecord) => void): () => void;
+  };  models: {
     getStatus(): Promise<ModelConfigStatus>;
     updateConfig(input: ModelConfigInput): Promise<ModelConfigStatus>;
     start(input: {
