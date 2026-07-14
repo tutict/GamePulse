@@ -21,9 +21,10 @@ export function AppShell(props: {
     const active = props.activeNavigationId === item.id;
     return (
       <button
+        aria-label={`切换到${item.label}`}
         aria-current={active ? "page" : undefined}
         className={cn(
-          "flex min-w-0 items-center gap-3 rounded-md px-3 py-2.5 text-sm font-semibold text-muted-foreground transition-colors",
+          "flex min-h-11 min-w-0 items-center gap-3 rounded-md px-3 py-2.5 text-sm font-semibold text-muted-foreground transition-colors",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           "hover:bg-accent hover:text-accent-foreground",
           active && "bg-accent text-accent-foreground"
@@ -39,8 +40,8 @@ export function AppShell(props: {
   });
 
   return (
-    <div className="min-h-dvh bg-background text-foreground md:pl-64">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-border bg-card md:flex">
+    <div className="min-h-dvh bg-background text-foreground lg:pl-64">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-border bg-card lg:flex">
         <div className="flex min-h-20 items-center gap-3 border-b border-border px-5 py-4">
           <div className="shrink-0">{props.brand}</div>
           <div className="min-w-0 flex-1">
@@ -60,7 +61,7 @@ export function AppShell(props: {
         ) : null}
       </aside>
 
-      <header className="sticky top-0 z-20 border-b border-border bg-primary text-primary-foreground md:hidden">
+      <header className="sticky top-0 z-20 border-b border-border bg-primary text-primary-foreground lg:hidden">
         <div className="mx-auto flex min-h-16 max-w-5xl items-center gap-3 px-4 py-3">
           <div className="shrink-0">{props.brand}</div>
           <div className="min-w-0 flex-1">
@@ -79,14 +80,18 @@ export function AppShell(props: {
 
       <nav
         aria-label="Primary"
-        className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden"
       >
-        <div className="mx-auto grid max-w-3xl grid-cols-6 gap-1">
+        <div
+          className="mx-auto grid max-w-3xl gap-1"
+          style={{ gridTemplateColumns: `repeat(${Math.max(1, props.navigation.length)}, minmax(0, 1fr))` }}
+        >
           {props.navigation.map((item) => (
             <button
+              aria-label={`切换到${item.label}`}
               aria-current={props.activeNavigationId === item.id ? "page" : undefined}
               className={cn(
-                "flex min-w-0 flex-col items-center justify-center gap-1 rounded-md px-1 py-2 text-[10px] font-semibold text-muted-foreground transition-colors",
+                "flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-md px-1 py-2 text-xs font-semibold text-muted-foreground transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 props.activeNavigationId === item.id && "bg-accent text-accent-foreground"
               )}
@@ -95,7 +100,7 @@ export function AppShell(props: {
               type="button"
             >
               {item.icon}
-              <span className="max-w-full truncate">{item.label}</span>
+              <span className="max-w-full text-center leading-4">{item.label}</span>
             </button>
           ))}
         </div>
