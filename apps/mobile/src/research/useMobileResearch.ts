@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef } from "react";
 import {
   buildResearchFollowUp,
+  type LocalStore,
   type Project,
   type ResearchRecord
 } from "@gamepulse/shared";
@@ -11,15 +12,30 @@ import type {
   ResearchWorkspaceModel,
   SentimentReportView
 } from "@gamepulse/ui";
-import type { ModelConfigStatus } from "./types.js";
+import {
+  exportAndShareProject,
+  pickAndImportFile
+} from "../files/projectFiles.js";
+import { RemoteModelGateway } from "../models/remoteModelGateway.js";
+import {
+  getRemoteModelStatus,
+  resolveRemoteModelConfig,
+  saveRemoteModelConfig,
+  type RemoteModelConfigStatus
+} from "../models/secureModelConfig.js";
+import { getLocalStore } from "../storage/index.js";
+import {
+  createMobileResearchController,
+  type MobileResearchController
+} from "./mobileResearchController.js";
 
 type ActiveView = "research" | "history" | "settings";
 
-interface DesktopResearchState {
+interface MobileResearchState {
   activeView: ActiveView;
   current?: ResearchRecord;
   history: ResearchRecord[];
-  modelStatus?: ModelConfigStatus;
+  modelStatus?: RemoteModelConfigStatus;
   projects: Project[];
   busy: boolean;
   error?: string;
@@ -29,112 +45,100 @@ interface DesktopResearchState {
   packageStatus?: string;
 }
 
-type DesktopResearchAction = {
+type MobileResearchAction = {
   type: "patch";
-  value: Partial<DesktopResearchState>;
+  value: Partial<MobileResearchState>;
 };
 
-const initialState: DesktopResearchState = {
+const initialState: MobileResearchState = {
   activeView: "research",
   history: [],
   projects: [],
-  busy: false,
+  busy: true,
   followUpBusy: false
 };
 
-function reducer(
-  state: DesktopResearchState,
-  action: DesktopResearchAction
-): DesktopResearchState {
+function reducer(state: MobileResearchState, action: MobileResearchAction): MobileResearchState {
   return action.type === "patch" ? { ...state, ...action.value } : state;
 }
 
-export function useDesktopResearch() {
+export function useMobileResearch() {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const activeModelRequest = useRef("");
-  const followUpFallback = useRef("");
-  const modelAnswerText = useRef("");
+  const storeRef = useRef<LocalStore | undefined>(undefined);
+  const controllerRef = useRef<MobileResearchController | undefined>(undefined);
+  const modelAbort = useRef<AbortController | undefined>(undefined);
 
   useEffect(() => {
     let disposed = false;
-    void Promise.all([
-      window.gamepulse.research.list(),
-      window.gamepulse.models.getStatus(),
-      window.gamepulse.projects.list()
-    ])
-      .then(([history, modelStatus, projects]) => {
-        if (!disposed) {
-          dispatch({ type: "patch", value: { history, modelStatus, projects } });
+    void (async () => {
+      try {
+        const store = await getLocalStore();
+        const controller = createMobileResearchController(store);
+        const [history, modelStatus, projects] = await Promise.all([
+          controller.list(),
+          getRemoteModelStatus(),
+          store.listProjects()
+        ]);
+        if (disposed) {
+          return;
         }
-      })
-      .catch((error) => {
-        if (!disposed) {
-          dispatch({ type: "patch", value: { error: errorMessage(error) } });
-        }
-      });
-
-    const removeResearchListener = window.gamepulse.research.onEvent((current) => {
-      dispatch({
-        type: "patch",
-        value: {
-          current,
-          busy: current.status === "running" || current.status === "pending",
-          error: current.error
-        }
-      });
-    });
-    const removeModelListener = window.gamepulse.models.onEvent(({ requestId, event }) => {
-      if (requestId !== activeModelRequest.current) {
-        return;
-      }
-      if (event.type === "delta") {
+        storeRef.current = store;
+        controllerRef.current = controller;
         dispatch({
           type: "patch",
-          value: {
-            followUpAnswer: `${modelAnswerText.current}${event.text}`,
-            followUpBusy: true
-          }
+          value: { history, modelStatus, projects, busy: false, error: undefined }
         });
-        modelAnswerText.current += event.text;
-      } else if (event.type === "error") {
-        activeModelRequest.current = "";
-        modelAnswerText.current = followUpFallback.current;
-        dispatch({
-          type: "patch",
-          value: {
-            followUpAnswer: `${followUpFallback.current}\n\n模型回答失败：${event.message}`,
-            followUpBusy: false
-          }
-        });
-      } else {
-        activeModelRequest.current = "";
-        dispatch({ type: "patch", value: { followUpBusy: false } });
+      } catch (error) {
+        if (!disposed) {
+          dispatch({
+            type: "patch",
+            value: { busy: false, error: errorMessage(error) }
+          });
+        }
       }
-    });
+    })();
     return () => {
       disposed = true;
-      if (activeModelRequest.current) {
-        void window.gamepulse.models.cancel(activeModelRequest.current);
-        activeModelRequest.current = "";
-      }
-      removeResearchListener();
-      removeModelListener();
+      controllerRef.current?.cancelAll();
+      modelAbort.current?.abort();
     };
   }, []);
 
-  async function refreshHistory(): Promise<ResearchRecord[]> {
-    const history = await window.gamepulse.research.list();
-    dispatch({ type: "patch", value: { history } });
-    return history;
+  function requireController(): MobileResearchController {
+    if (!controllerRef.current) {
+      throw new Error("本地研究库尚未初始化");
+    }
+    return controllerRef.current;
   }
 
-  async function runOperation(operation: () => Promise<ResearchRecord>) {
+  function handleProgress(current: ResearchRecord) {
+    dispatch({
+      type: "patch",
+      value: {
+        current,
+        busy: current.status === "running" || current.status === "pending",
+        error: current.error
+      }
+    });
+  }
+
+  async function refreshHistory() {
+    const history = await requireController().list();
+    dispatch({ type: "patch", value: { history } });
+  }
+
+  async function runOperation(
+    operation: (
+      controller: MobileResearchController,
+      onProgress: (current: ResearchRecord) => void
+    ) => Promise<ResearchRecord>
+  ) {
     dispatch({
       type: "patch",
       value: { activeView: "research", busy: true, error: undefined }
     });
     try {
-      const current = await operation();
+      const current = await operation(requireController(), handleProgress);
       dispatch({ type: "patch", value: { current, busy: false, error: current.error } });
       await refreshHistory();
       return current;
@@ -145,12 +149,8 @@ export function useDesktopResearch() {
   }
 
   function cancelActiveModel() {
-    const requestId = activeModelRequest.current;
-    activeModelRequest.current = "";
-    modelAnswerText.current = "";
-    if (requestId) {
-      void window.gamepulse.models.cancel(requestId);
-    }
+    modelAbort.current?.abort();
+    modelAbort.current = undefined;
   }
 
   function navigate(view: ActiveView) {
@@ -175,14 +175,14 @@ export function useDesktopResearch() {
       type: "patch",
       value: { current: undefined, followUpAnswer: undefined, followUpBusy: false }
     });
-    await runOperation(() => window.gamepulse.research.start(request));
+    await runOperation((controller, onProgress) => controller.start(request, onProgress));
   }
 
   async function openResearch(researchId: string) {
     cancelActiveModel();
     dispatch({ type: "patch", value: { activeView: "research", busy: true } });
     try {
-      const current = await window.gamepulse.research.get(researchId);
+      const current = await requireController().get(researchId);
       if (!current) {
         throw new Error("Research was not found");
       }
@@ -201,37 +201,39 @@ export function useDesktopResearch() {
     }
   }
 
-  async function cancel() {
+  function cancel() {
     if (state.current) {
-      await window.gamepulse.research.cancel(state.current.id);
+      requireController().cancel(state.current.id);
     }
   }
 
   async function chooseIdentity(candidateId: string) {
     if (state.current) {
-      await runOperation(() =>
-        window.gamepulse.research.continueIdentity(state.current!.id, candidateId)
+      await runOperation((controller, onProgress) =>
+        controller.continueWithIdentity(state.current!.id, candidateId, onProgress)
       );
     }
   }
 
   async function updateResearch() {
     if (state.current) {
-      await runOperation(() => window.gamepulse.research.refresh(state.current!.id));
+      await runOperation((controller, onProgress) =>
+        controller.refresh(state.current!.id, onProgress)
+      );
     }
   }
 
   async function excludeEvidence(evidenceId: string, reason: string) {
     if (state.current) {
-      await runOperation(() =>
-        window.gamepulse.research.excludeEvidence(state.current!.id, evidenceId, reason)
+      await runOperation((controller) =>
+        controller.excludeEvidence(state.current!.id, evidenceId, reason)
       );
     }
   }
 
   async function regenerateReport() {
     if (state.current) {
-      await runOperation(() => window.gamepulse.research.regenerate(state.current!.id));
+      await runOperation((controller) => controller.regenerate(state.current!.id));
     }
   }
 
@@ -240,10 +242,7 @@ export function useDesktopResearch() {
       return;
     }
     const grounded = buildResearchFollowUp({ research: state.current, question });
-    followUpFallback.current = grounded.fallbackAnswer;
-    const canUseModel = state.modelStatus?.provider === "ollama"
-      || Boolean(state.modelStatus?.hasApiKey);
-    if (!canUseModel || grounded.citations.length === 0) {
+    if (!state.modelStatus?.hasApiKey || grounded.citations.length === 0) {
       dispatch({
         type: "patch",
         value: { followUpAnswer: grounded.fallbackAnswer, followUpBusy: false }
@@ -251,44 +250,57 @@ export function useDesktopResearch() {
       return;
     }
 
-    const requestId = crypto.randomUUID();
-    activeModelRequest.current = requestId;
-    modelAnswerText.current = "";
-    dispatch({
-      type: "patch",
-      value: { followUpAnswer: "", followUpBusy: true }
-    });
+    cancelActiveModel();
+    const abort = new AbortController();
+    modelAbort.current = abort;
+    dispatch({ type: "patch", value: { followUpAnswer: "", followUpBusy: true } });
+    let answer = "";
     try {
-      await window.gamepulse.models.start({
-        requestId,
+      const config = await resolveRemoteModelConfig();
+      const gateway = new RemoteModelGateway(config);
+      for await (const event of gateway.stream({
+        model: config.model,
         messages: [{ role: "user", content: grounded.prompt }],
         timeoutMs: 60_000,
-        temperature: 0.1
-      });
-    } catch (error) {
-      dispatch({
-        type: "patch",
-        value: {
-          followUpAnswer: `${grounded.fallbackAnswer}\n\n模型回答失败：${errorMessage(error)}`,
-          followUpBusy: false
+        temperature: 0.1,
+        signal: abort.signal
+      })) {
+        if (event.type === "delta") {
+          answer += event.text;
+          dispatch({ type: "patch", value: { followUpAnswer: answer } });
+        } else if (event.type === "error") {
+          throw new Error(event.message);
         }
-      });
+      }
+      dispatch({ type: "patch", value: { followUpBusy: false } });
+    } catch (error) {
+      if (!abort.signal.aborted) {
+        dispatch({
+          type: "patch",
+          value: {
+            followUpAnswer: `${grounded.fallbackAnswer}\n\n模型回答失败：${errorMessage(error)}`,
+            followUpBusy: false
+          }
+        });
+      }
+    } finally {
+      if (modelAbort.current === abort) {
+        modelAbort.current = undefined;
+      }
     }
   }
 
   async function saveSettings(input: ResearchSettingsInput) {
     dispatch({ type: "patch", value: { settingsMessage: "正在保存…", busy: true } });
     try {
-      const modelStatus = await window.gamepulse.models.updateConfig(input);
+      const modelStatus = await saveRemoteModelConfig({
+        baseUrl: input.baseUrl,
+        model: input.model,
+        apiKey: input.apiKey
+      });
       dispatch({
         type: "patch",
-        value: {
-          modelStatus,
-          settingsMessage: modelStatus.provider === "ollama"
-            ? "Ollama 配置已保存。"
-            : `远程模型配置已保存${modelStatus.apiKeyHint ? `，密钥 ${modelStatus.apiKeyHint}` : ""}。`,
-          busy: false
-        }
+        value: { modelStatus, settingsMessage: "远程模型配置已安全保存。", busy: false }
       });
     } catch (error) {
       dispatch({ type: "patch", value: { settingsMessage: errorMessage(error), busy: false } });
@@ -296,19 +308,24 @@ export function useDesktopResearch() {
   }
 
   async function importData() {
+    const store = storeRef.current;
+    if (!store) {
+      dispatch({ type: "patch", value: { packageStatus: "本地研究库尚未初始化。", busy: false } });
+      return;
+    }
     dispatch({ type: "patch", value: { packageStatus: "正在导入…", busy: true } });
     try {
-      const result = await window.gamepulse.projects.importPackage();
-      if (result.canceled) {
+      const result = await pickAndImportFile(store);
+      if (!result) {
         dispatch({ type: "patch", value: { packageStatus: undefined, busy: false } });
         return;
       }
-      const projects = await window.gamepulse.projects.list();
+      const projects = await store.listProjects();
       dispatch({
         type: "patch",
         value: {
           projects,
-          packageStatus: `已导入 ${result.fileName}：新增 ${result.inserted} 条，更新 ${result.updated} 条。`,
+          packageStatus: `已导入 ${result.fileName}：新增 ${result.inserted}/${result.accepted} 条。`,
           busy: false
         }
       });
@@ -318,20 +335,16 @@ export function useDesktopResearch() {
   }
 
   async function exportData() {
+    const store = storeRef.current;
     const project = state.projects[0];
-    if (!project) {
+    if (!store || !project) {
       dispatch({ type: "patch", value: { packageStatus: "没有可导出的旧项目包。", busy: false } });
       return;
     }
     dispatch({ type: "patch", value: { packageStatus: "正在导出…", busy: true } });
     try {
-      const result = await window.gamepulse.projects.exportPackage(project.id);
-      dispatch({
-        type: "patch",
-        value: result.canceled
-          ? { packageStatus: undefined, busy: false }
-          : { packageStatus: `已导出 ${result.fileName}，共 ${formatBytes(result.bytes)}。`, busy: false }
-      });
+      const fileName = await exportAndShareProject(store, project.id);
+      dispatch({ type: "patch", value: { packageStatus: `已生成 ${fileName}`, busy: false } });
     } catch (error) {
       dispatch({ type: "patch", value: { packageStatus: errorMessage(error), busy: false } });
     }
@@ -354,7 +367,7 @@ export function useDesktopResearch() {
   };
 }
 
-function buildWorkspaceModel(state: DesktopResearchState): ResearchWorkspaceModel {
+function buildWorkspaceModel(state: MobileResearchState): ResearchWorkspaceModel {
   if (state.activeView === "history") {
     return { screen: "history", items: state.history.map(toHistoryItem) };
   }
@@ -363,14 +376,14 @@ function buildWorkspaceModel(state: DesktopResearchState): ResearchWorkspaceMode
     return {
       screen: "settings",
       settings: {
-        platform: "windows",
+        platform: "android",
         mode: "fixture",
-        provider: status?.provider ?? "openai",
+        provider: "openai",
         baseUrl: status?.baseUrl ?? "https://api.openai.com/v1",
         model: status?.model ?? "gpt-4.1-mini",
         apiKeyHint: status?.apiKeyHint,
-        credentialsReady: status?.provider === "ollama" || Boolean(status?.hasApiKey),
-        supportsOllama: true,
+        credentialsReady: Boolean(status?.hasApiKey),
+        supportsOllama: false,
         busy: state.busy,
         message: state.settingsMessage,
         advancedData: {
@@ -386,8 +399,7 @@ function buildWorkspaceModel(state: DesktopResearchState): ResearchWorkspaceMode
       screen: "start",
       recent: state.history.map(toHistoryItem).slice(0, 5),
       mode: "fixture",
-      credentialsReady: state.modelStatus?.provider === "ollama"
-        || Boolean(state.modelStatus?.hasApiKey),
+      credentialsReady: Boolean(state.modelStatus?.hasApiKey),
       busy: state.busy,
       error: state.error
     };
@@ -494,16 +506,6 @@ function progressStatus(status: ResearchRecord["status"]): "running" | "needs_in
     return status;
   }
   return "running";
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function errorMessage(error: unknown): string {

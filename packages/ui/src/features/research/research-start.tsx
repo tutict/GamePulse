@@ -1,4 +1,4 @@
-import { ArrowRight, Clock3, FlaskConical, KeyRound, LoaderCircle } from "lucide-react";
+import { ArrowRight, CircleAlert, Clock3, FlaskConical, KeyRound, LoaderCircle } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Badge } from "../../components/badge.js";
 import { Button } from "../../components/button.js";
@@ -11,6 +11,7 @@ export function ResearchStart(props: {
   mode: "fixture" | "live";
   credentialsReady: boolean;
   busy?: boolean;
+  error?: string;
   onStart?: (request: { gameName: string; focus?: string }) => void;
   onOpenResearch?: (researchId: string) => void;
 }) {
@@ -48,6 +49,12 @@ export function ResearchStart(props: {
         </h2>
       </header>
 
+      {props.error ? (
+        <div className="mt-5 flex gap-3 rounded-md border border-destructive/35 bg-destructive/10 p-4 text-sm text-destructive" role="alert">
+          <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
+          <span className="leading-6">{props.error}</span>
+        </div>
+      ) : null}
       <form className="grid gap-5 py-6 sm:py-8" onSubmit={handleSubmit}>
         <label className="grid gap-2 text-sm font-semibold" htmlFor="research-game-name">
           游戏名称

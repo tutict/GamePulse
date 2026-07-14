@@ -52,6 +52,7 @@ function renderScreen(props: ResearchWorkspaceProps) {
       <ResearchStart
         busy={model.busy}
         credentialsReady={model.credentialsReady}
+        error={model.error}
         mode={model.mode}
         onOpenResearch={props.onOpenResearch}
         onStart={props.onStart}

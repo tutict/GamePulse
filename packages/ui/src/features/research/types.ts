@@ -115,6 +115,7 @@ export type ResearchWorkspaceModel =
       mode: "fixture" | "live";
       credentialsReady: boolean;
       busy?: boolean;
+      error?: string;
     }
   | {
       screen: "progress";
