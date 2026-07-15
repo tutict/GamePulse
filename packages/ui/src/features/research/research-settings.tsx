@@ -4,8 +4,12 @@ import {
   Download,
   FlaskConical,
   KeyRound,
+  Monitor,
+  Moon,
+  Palette,
   Save,
   ShieldCheck,
+  Sun,
   Upload
 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
@@ -16,12 +20,15 @@ import type {
   ResearchSettingsInput,
   ResearchSettingsView
 } from "./types.js";
+import type { ThemePreference } from "../theme/use-theme.js";
 
 export function ResearchSettings(props: {
   settings: ResearchSettingsView;
   onSaveSettings?: (settings: ResearchSettingsInput) => void;
   onImportData?: () => void;
   onExportData?: () => void;
+  themePreference: ThemePreference;
+  onThemePreferenceChange: (theme: ThemePreference) => void;
 }) {
   const [provider, setProvider] = useState(props.settings.provider);
   const [baseUrl, setBaseUrl] = useState(props.settings.baseUrl);
@@ -87,6 +94,48 @@ export function ResearchSettings(props: {
                 : "研究会访问已配置的公开来源，并在报告中列出实际覆盖范围。"}
             </p>
           </div>
+        </div>
+      </section>
+
+      <section className="border-b border-border py-6" aria-labelledby="appearance-heading">
+        <h3 className="m-0 flex items-center gap-2 text-base font-semibold" id="appearance-heading">
+          <Palette aria-hidden="true" className="size-5 text-muted-foreground" />
+          外观
+        </h3>
+        <div
+          aria-label="颜色模式"
+          className="mt-4 grid grid-cols-3 rounded-md border border-input bg-muted/40 p-1"
+          role="radiogroup"
+        >
+          {([
+            { id: "system", label: "跟随系统", icon: Monitor },
+            { id: "light", label: "浅色", icon: Sun },
+            { id: "dark", label: "深色", icon: Moon }
+          ] as const).map((item) => {
+            const Icon = item.icon;
+            const selected = props.themePreference === item.id;
+            return (
+              <label
+                className={`relative flex min-h-14 min-w-0 cursor-pointer flex-col items-center justify-center gap-1 rounded-sm px-2 py-2 text-xs font-semibold transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-1 focus-within:ring-offset-background ${
+                  selected
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                }`}
+                key={item.id}
+              >
+                <input
+                  checked={selected}
+                  className="sr-only"
+                  name="theme-preference"
+                  onChange={() => props.onThemePreferenceChange(item.id)}
+                  type="radio"
+                  value={item.id}
+                />
+                <Icon aria-hidden="true" className="size-4 shrink-0" />
+                <span className="max-w-full truncate">{item.label}</span>
+              </label>
+            );
+          })}
         </div>
       </section>
 

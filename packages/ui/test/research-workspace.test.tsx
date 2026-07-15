@@ -1,9 +1,16 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  window.localStorage.clear();
+  document.documentElement.removeAttribute("data-theme");
+  document.documentElement.classList.remove("dark");
+  document.documentElement.style.removeProperty("color-scheme");
+  vi.unstubAllGlobals();
+});
 import { ResearchWorkspace } from "../src/features/research/research-workspace.js";
 import type { ResearchWorkspaceModel } from "../src/features/research/types.js";
 
@@ -64,7 +71,60 @@ const reportModel: ResearchWorkspaceModel = {
   ]
 };
 
+const settingsModel: ResearchWorkspaceModel = {
+  screen: "settings",
+  settings: {
+    platform: "windows",
+    mode: "live",
+    provider: "openai",
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-4.1-mini",
+    credentialsReady: false,
+    supportsOllama: true
+  }
+};
+
 describe("ResearchWorkspace", () => {
+  it("reacts to system color scheme changes", () => {
+    let notify = (_matches: boolean) => {};
+    const media = {
+      matches: false,
+      addEventListener: (
+        _event: string,
+        listener: (event: { matches: boolean }) => void
+      ) => {
+        notify = (matches) => listener({ matches });
+      },
+      removeEventListener: vi.fn()
+    };
+    vi.stubGlobal("matchMedia", vi.fn(() => media));
+
+    render(<ResearchWorkspace model={settingsModel} />);
+    expect(document.documentElement.dataset.theme).toBe("light");
+
+    act(() => notify(true));
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(document.documentElement.style.colorScheme).toBe("dark");
+
+    act(() => notify(false));
+    expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
+  it("persists an explicit dark theme preference", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<ResearchWorkspace model={settingsModel} />);
+
+    await user.click(screen.getByRole("radio", { name: "深色" }));
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(document.documentElement.style.colorScheme).toBe("dark");
+    expect(window.localStorage.getItem("gamepulse-theme")).toBe("dark");
+
+    unmount();
+    render(<ResearchWorkspace model={settingsModel} />);
+    expect((screen.getByRole("radio", { name: "深色" }) as HTMLInputElement).checked).toBe(true);
+  });
+
   it("sizes the mobile navigation from the three actual destinations", () => {
     render(<ResearchWorkspace model={startModel} />);
     const navigation = screen.getAllByRole("navigation", { name: "Primary" }).at(-1)!;

@@ -3,34 +3,85 @@
 @source "../../../packages/ui/src";
 
 @theme inline {
-  --color-background: hsl(72 24% 91%);
-  --color-foreground: hsl(218 29% 16%);
-  --color-card: hsl(0 0% 100% / 0.82);
-  --color-card-foreground: hsl(218 29% 16%);
-  --color-primary: hsl(219 39% 15%);
-  --color-primary-foreground: hsl(210 40% 98%);
-  --color-secondary: hsl(76 21% 87%);
-  --color-secondary-foreground: hsl(218 29% 16%);
-  --color-muted: hsl(77 19% 94%);
-  --color-muted-foreground: hsl(220 12% 43%);
-  --color-accent: hsl(156 24% 84%);
-  --color-accent-foreground: hsl(218 29% 16%);
-  --color-destructive: hsl(10 59% 45%);
-  --color-destructive-foreground: hsl(210 40% 98%);
-  --color-border: hsl(218 29% 16% / 0.12);
-  --color-input: hsl(218 29% 16% / 0.16);
-  --color-ring: hsl(158 40% 32%);
+  --color-background: hsl(var(--gp-background));
+  --color-foreground: hsl(var(--gp-foreground));
+  --color-card: hsl(var(--gp-card));
+  --color-card-foreground: hsl(var(--gp-card-foreground));
+  --color-popover: hsl(var(--gp-popover));
+  --color-popover-foreground: hsl(var(--gp-popover-foreground));
+  --color-primary: hsl(var(--gp-primary));
+  --color-primary-foreground: hsl(var(--gp-primary-foreground));
+  --color-secondary: hsl(var(--gp-secondary));
+  --color-secondary-foreground: hsl(var(--gp-secondary-foreground));
+  --color-muted: hsl(var(--gp-muted));
+  --color-muted-foreground: hsl(var(--gp-muted-foreground));
+  --color-accent: hsl(var(--gp-accent));
+  --color-accent-foreground: hsl(var(--gp-accent-foreground));
+  --color-destructive: hsl(var(--gp-destructive));
+  --color-destructive-foreground: hsl(var(--gp-destructive-foreground));
+  --color-border: hsl(var(--gp-border));
+  --color-input: hsl(var(--gp-input));
+  --color-ring: hsl(var(--gp-ring));
+  --color-positive: hsl(var(--gp-positive));
+  --color-neutral: hsl(var(--gp-neutral));
   --radius-md: 0.5rem;
   --radius-lg: 0.5rem;
 }
 
 :root {
-  color: hsl(218 29% 16%);
-  background: hsl(72 24% 91%);
+  --gp-background: 72 24% 91%;
+  --gp-foreground: 218 29% 16%;
+  --gp-card: 0 0% 100% / 0.82;
+  --gp-card-foreground: 218 29% 16%;
+  --gp-popover: 0 0% 100%;
+  --gp-popover-foreground: 218 29% 16%;
+  --gp-primary: 219 39% 15%;
+  --gp-primary-foreground: 210 40% 98%;
+  --gp-secondary: 76 21% 87%;
+  --gp-secondary-foreground: 218 29% 16%;
+  --gp-muted: 77 19% 94%;
+  --gp-muted-foreground: 220 12% 43%;
+  --gp-accent: 156 24% 84%;
+  --gp-accent-foreground: 218 29% 16%;
+  --gp-destructive: 10 59% 45%;
+  --gp-destructive-foreground: 210 40% 98%;
+  --gp-border: 218 29% 16% / 0.12;
+  --gp-input: 218 29% 16% / 0.16;
+  --gp-ring: 158 40% 32%;
+  --gp-positive: 158 55% 29%;
+  --gp-neutral: 35 88% 36%;
+  color: hsl(var(--gp-foreground));
+  background: hsl(var(--gp-background));
+  color-scheme: light;
   font-family: "Segoe UI", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+}
+
+:root[data-theme="dark"] {
+  --gp-background: 210 14% 10%;
+  --gp-foreground: 48 18% 92%;
+  --gp-card: 210 12% 14% / 0.94;
+  --gp-card-foreground: 48 18% 92%;
+  --gp-popover: 210 12% 13%;
+  --gp-popover-foreground: 48 18% 92%;
+  --gp-primary: 158 34% 25%;
+  --gp-primary-foreground: 48 24% 96%;
+  --gp-secondary: 210 10% 19%;
+  --gp-secondary-foreground: 48 18% 92%;
+  --gp-muted: 210 10% 16%;
+  --gp-muted-foreground: 210 9% 69%;
+  --gp-accent: 157 20% 22%;
+  --gp-accent-foreground: 48 18% 92%;
+  --gp-destructive: 8 62% 52%;
+  --gp-destructive-foreground: 0 0% 100%;
+  --gp-border: 48 14% 90% / 0.14;
+  --gp-input: 48 14% 90% / 0.2;
+  --gp-ring: 158 52% 56%;
+  --gp-positive: 155 56% 62%;
+  --gp-neutral: 42 90% 62%;
+  color-scheme: dark;
 }
 
 * {
@@ -46,9 +97,7 @@ body,
 
 body {
   min-width: 320px;
-  background:
-    radial-gradient(circle at 10% 0%, hsl(156 34% 80% / 0.42), transparent 22rem),
-    hsl(72 24% 91%);
+  background: hsl(var(--gp-background));
 }
 
 button,
@@ -66,6 +115,6 @@ textarea {
 }
 
 ::selection {
-  color: hsl(210 40% 98%);
-  background: hsl(158 40% 32%);
+  color: hsl(var(--gp-primary-foreground));
+  background: hsl(var(--gp-ring));
 }

@@ -252,8 +252,8 @@ function sentimentLabel(sentiment: EvidenceView["sentiment"]): string {
 
 function sentimentDotClass(sentiment: EvidenceView["sentiment"]): string {
   return {
-    positive: "size-2 rounded-full bg-emerald-600",
-    neutral: "size-2 rounded-full bg-amber-500",
+    positive: "size-2 rounded-full bg-positive",
+    neutral: "size-2 rounded-full bg-neutral",
     negative: "size-2 rounded-full bg-destructive"
   }[sentiment];
 }

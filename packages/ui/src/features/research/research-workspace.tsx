@@ -6,6 +6,10 @@ import { ResearchSettings } from "./research-settings.js";
 import { ResearchStart } from "./research-start.js";
 import { SentimentReport } from "./sentiment-report.js";
 import type { ResearchWorkspaceProps } from "./types.js";
+import {
+  useThemePreference,
+  type ThemePreference
+} from "../theme/use-theme.js";
 
 const navigation = [
   { id: "research", label: "开始研究", icon: <Radar aria-hidden="true" className="size-5" /> },
@@ -14,6 +18,7 @@ const navigation = [
 ];
 
 export function ResearchWorkspace(props: ResearchWorkspaceProps) {
+  const theme = useThemePreference();
   const activeNavigationId =
     props.model.screen === "history"
       ? "history"
@@ -40,12 +45,16 @@ export function ResearchWorkspace(props: ResearchWorkspaceProps) {
       subtitle="游戏风评研究"
       title="GamePulse 游脉"
     >
-      {renderScreen(props)}
+      {renderScreen(props, theme.preference, theme.setPreference)}
     </AppShell>
   );
 }
 
-function renderScreen(props: ResearchWorkspaceProps) {
+function renderScreen(
+  props: ResearchWorkspaceProps,
+  themePreference: ThemePreference,
+  onThemePreferenceChange: (theme: ThemePreference) => void
+) {
   const { model } = props;
   if (model.screen === "start") {
     return (
@@ -106,6 +115,8 @@ function renderScreen(props: ResearchWorkspaceProps) {
       onImportData={props.onImportData}
       onSaveSettings={props.onSaveSettings}
       settings={model.settings}
+      themePreference={themePreference}
+      onThemePreferenceChange={onThemePreferenceChange}
     />
   );
 }

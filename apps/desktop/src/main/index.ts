@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, nativeTheme } from "electron";
 import { registerCollectorHandlers } from "./collector.js";
 import {
   initializeDesktopDatabase,
@@ -31,7 +31,7 @@ function createMainWindow(): void {
     minWidth: 360,
     minHeight: 600,
     title: "GamePulse",
-    backgroundColor: "#e9eadf",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#171a1c" : "#e9eadf",
     webPreferences: {
       preload: join(currentDir, "../preload/index.cjs"),
       contextIsolation: true,

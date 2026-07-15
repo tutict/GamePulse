@@ -125,8 +125,8 @@ export function SentimentReport(props: {
           className="mt-5 flex h-2 overflow-hidden rounded-full bg-muted"
           role="img"
         >
-          <span className="bg-emerald-600" style={{ width: `${props.report.positiveRate}%` }} />
-          <span className="bg-amber-500" style={{ width: `${props.report.neutralRate}%` }} />
+          <span className="bg-positive" style={{ width: `${props.report.positiveRate}%` }} />
+          <span className="bg-neutral" style={{ width: `${props.report.neutralRate}%` }} />
           <span className="bg-destructive" style={{ width: `${props.report.negativeRate}%` }} />
         </div>
         <div className="mt-4 grid grid-cols-3 divide-x divide-border border-y border-border">
@@ -252,8 +252,8 @@ function Metric(props: {
   tone: "positive" | "neutral" | "negative";
 }) {
   const toneClass = {
-    positive: "text-emerald-700",
-    neutral: "text-amber-700",
+    positive: "text-positive",
+    neutral: "text-neutral",
     negative: "text-destructive"
   }[props.tone];
   return (
