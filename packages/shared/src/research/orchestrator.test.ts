@@ -10,7 +10,11 @@ import {
   runResearch
 } from "./orchestrator.js";
 import { DeterministicReportGenerator } from "./reportGenerator.js";
-import { createResearch, type ResearchRecord } from "./types.js";
+import {
+  compareResearchEvidence,
+  createResearch,
+  type ResearchRecord
+} from "./types.js";
 
 const timestamp = "2026-07-13T00:00:00.000Z";
 const now = () => timestamp;
@@ -48,7 +52,7 @@ describe("research orchestration", () => {
     expect(new Set(completed.evidence.map((item) => item.platform))).toEqual(
       new Set(["steam", "bilibili", "reddit", "public-forum"])
     );
-    expect(completed.reports[0]?.topics).toHaveLength(3);
+    expect(completed.reports[0]?.topics.length).toBeGreaterThanOrEqual(3);
     expect(
       completed.reports[0]?.topics.every((topic) => topic.evidenceIds.length > 0)
     ).toBe(true);
@@ -249,8 +253,14 @@ describe("research follow-up", () => {
     expect(result.citations.length).toBeLessThanOrEqual(8);
     expect(result.context.length).toBeLessThanOrEqual(12_000);
     expect(result.citations.map((item) => item.evidenceId)).not.toContain("evidence-0");
+    const stableLabels = new Map(
+      research.evidence
+        .filter((item) => item.id !== "evidence-0")
+        .sort(compareResearchEvidence)
+        .map((item, index) => [item.id, `[E${index + 1}]`])
+    );
     expect(result.citations.map((item) => item.label)).toEqual(
-      result.citations.map((_, index) => `[E${index + 1}]`)
+      result.citations.map((item) => stableLabels.get(item.evidenceId))
     );
     const perSource = Map.groupBy(result.citations, (item) => item.sourceId);
     expect(Array.from(perSource.values()).every((items) => items.length <= 2)).toBe(true);
@@ -268,5 +278,34 @@ describe("research follow-up", () => {
     expect(result.fallbackAnswer).toBe(
       "当前研究没有可用证据，无法基于本地材料回答这个问题。"
     );
+  });
+
+  it("does not match English topic keywords inside a game name", async () => {
+    const research = createResearch({ gameName: "Palworld" }, timestamp, "research-9");
+    research.sources = [{
+      id: "source-1",
+      platform: "reddit",
+      title: "Palworld player reviews",
+      url: "https://www.reddit.com/r/Palworld",
+      status: "covered",
+      itemCount: 1
+    }];
+    research.evidence = [{
+      id: "evidence-1",
+      sourceId: "source-1",
+      platform: "reddit",
+      sourceUrl: "https://www.reddit.com/r/Palworld",
+      sourceTitle: "Palworld player reviews",
+      body: "The combat is fun and stable.",
+      excerpt: "The combat is fun and stable.",
+      postedAt: timestamp,
+      sentiment: "positive",
+      relevance: 0.9
+    }];
+
+    const report = await generator().generate(research);
+
+    expect(report.topics.map((topic) => topic.id)).toContain("core-play");
+    expect(report.topics.map((topic) => topic.id)).not.toContain("story-world");
   });
 });

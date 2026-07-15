@@ -157,7 +157,9 @@ export function EvidenceDrawer(props: {
                     {item.body}
                   </blockquote>
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-                    <time dateTime={item.postedAt}>{formatDate(item.postedAt)}</time>
+                    <time dateTime={item.postedAt}>
+                      {item.dateEstimated ? "采集于 " : ""}{formatDate(item.postedAt)}
+                    </time>
                     {!item.fixture ? (
                       <a
                         className="inline-flex min-h-11 items-center gap-1.5 font-semibold text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

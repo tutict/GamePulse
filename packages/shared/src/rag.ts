@@ -122,21 +122,28 @@ export function rerankEvidence(
   return accepted;
 }
 
-export function createEvidenceCitations(evidence: RankedRagEvidence[]): RagCitation[] {
-  return evidence.map((item, index) => ({
-    id: `E${index + 1}`,
-    label: `[E${index + 1}]`,
-    commentId: item.id,
-    platform: item.platform,
-    sourceUrl: item.sourceUrl,
-    postedAt: item.postedAt,
-    excerpt: item.excerpt
-  }));
+export function createEvidenceCitations(
+  evidence: RankedRagEvidence[],
+  labels?: ReadonlyMap<string, string>
+): RagCitation[] {
+  return evidence.map((item, index) => {
+    const label = labels?.get(item.id) ?? `[E${index + 1}]`;
+    return {
+      id: label.slice(1, -1),
+      label,
+      commentId: item.id,
+      platform: item.platform,
+      sourceUrl: item.sourceUrl,
+      postedAt: item.postedAt,
+      excerpt: item.excerpt
+    };
+  });
 }
 
 export function buildRagContext(
   evidence: RankedRagEvidence[],
-  maxCharacters = DEFAULT_RAG_CONTEXT_CHARACTERS
+  maxCharacters = DEFAULT_RAG_CONTEXT_CHARACTERS,
+  labels?: ReadonlyMap<string, string>
 ): RagContext {
   const budget = Math.max(0, Math.floor(maxCharacters));
   if (budget === 0 || evidence.length === 0) {
@@ -150,14 +157,20 @@ export function buildRagContext(
   const includedEvidence = evidence.slice(0, targetCount);
   const separatorCharacters = contextSeparator.length * Math.max(0, targetCount - 1);
   const blockBudget = Math.max(1, Math.floor((budget - separatorCharacters) / targetCount));
-  const blocks = includedEvidence.map((item, index) => buildContextBlock(item, index, blockBudget));
+  const blocks = includedEvidence.map((item, index) =>
+    buildContextBlock(
+      item,
+      labels?.get(item.id) ?? `[E${index + 1}]`,
+      blockBudget
+    )
+  );
   const text = blocks.join(contextSeparator).slice(0, budget);
 
   return {
     text,
     characterCount: text.length,
     evidence: includedEvidence,
-    citations: createEvidenceCitations(includedEvidence)
+    citations: createEvidenceCitations(includedEvidence, labels)
   };
 }
 
@@ -194,8 +207,7 @@ function rankCandidate(candidate: RagEvidenceCandidate, terms: string[]): Ranked
   };
 }
 
-function buildContextBlock(item: RankedRagEvidence, index: number, blockBudget: number): string {
-  const label = `[E${index + 1}]`;
+function buildContextBlock(item: RankedRagEvidence, label: string, blockBudget: number): string {
   const metadata = [
     `platform=${item.platform}`,
     item.postedAt ? `postedAt=${item.postedAt}` : "",

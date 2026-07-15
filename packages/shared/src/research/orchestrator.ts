@@ -23,8 +23,8 @@ const stages: ResearchStage[] = [
 
 const stageMessages: Record<ResearchStage, string> = {
   identity: "正在确认目标游戏身份",
-  discovery: "正在整理固定验证样本来源",
-  collection: "正在读取固定验证样本",
+  discovery: "正在发现公开评论与讨论来源",
+  collection: "正在使用内置浏览器读取公开页面",
   cleaning: "正在去重并筛选有效证据",
   report: "正在生成带引用的风评报告"
 };

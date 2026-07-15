@@ -33,7 +33,7 @@ function createMainWindow(): void {
     title: "GamePulse",
     backgroundColor: "#e9eadf",
     webPreferences: {
-      preload: join(currentDir, "../preload/index.mjs"),
+      preload: join(currentDir, "../preload/index.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true

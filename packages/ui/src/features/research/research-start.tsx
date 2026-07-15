@@ -34,7 +34,7 @@ export function ResearchStart(props: {
     <div className="mx-auto w-full max-w-3xl">
       <header className="border-b border-border pb-6 sm:pb-8">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline">最近 90 天</Badge>
+          <Badge variant="outline">近 90 天优先</Badge>
           {props.mode === "fixture" ? (
             <Badge className="gap-1.5" variant="secondary">
               <FlaskConical aria-hidden="true" className="size-3.5" />

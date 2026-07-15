@@ -11,6 +11,7 @@ coverage/
 # Electron desktop output
 apps/desktop/out/
 apps/desktop/release/
+apps/desktop/.electron-dev/
 release/
 
 # Local environment

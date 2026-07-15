@@ -36,6 +36,9 @@ export function SentimentReport(props: {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const evidenceTriggerRef = useRef<HTMLButtonElement>(null);
+  const citationLabels = new Map(
+    props.evidence.map((item) => [item.id, item.citationLabel])
+  );
 
   function closeDrawer() {
     setDrawerOpen(false);
@@ -159,7 +162,12 @@ export function SentimentReport(props: {
                   </p>
                 </div>
                 <span className="text-xs font-semibold text-muted-foreground sm:pt-1">
-                  {topic.evidenceIds.length} 条证据
+                  {topic.evidenceIds
+                    .map((id) => citationLabels.get(id))
+                    .filter((label): label is string => Boolean(label))
+                    .slice(0, 4)
+                    .map((label) => `[${label}]`)
+                    .join(" ")}
                 </span>
               </li>
             ))}

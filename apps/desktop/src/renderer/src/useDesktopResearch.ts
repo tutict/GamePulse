@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef } from "react";
 import {
   buildResearchFollowUp,
+  compareResearchEvidence,
   type Project,
   type ResearchRecord
 } from "@gamepulse/shared";
@@ -364,7 +365,7 @@ function buildWorkspaceModel(state: DesktopResearchState): ResearchWorkspaceMode
       screen: "settings",
       settings: {
         platform: "windows",
-        mode: "fixture",
+        mode: "live",
         provider: status?.provider ?? "openai",
         baseUrl: status?.baseUrl ?? "https://api.openai.com/v1",
         model: status?.model ?? "gpt-4.1-mini",
@@ -385,7 +386,7 @@ function buildWorkspaceModel(state: DesktopResearchState): ResearchWorkspaceMode
     return {
       screen: "start",
       recent: state.history.map(toHistoryItem).slice(0, 5),
-      mode: "fixture",
+      mode: "live",
       credentialsReady: state.modelStatus?.provider === "ollama"
         || Boolean(state.modelStatus?.hasApiKey),
       busy: state.busy,
@@ -466,7 +467,7 @@ function toEvidenceViews(research: ResearchRecord): EvidenceView[] {
   const excluded = new Set(research.exclusions.map((item) => item.evidenceId));
   return research.evidence
     .slice()
-    .sort((left, right) => right.relevance - left.relevance || left.id.localeCompare(right.id))
+    .sort(compareResearchEvidence)
     .map((item, index) => ({
       id: item.id,
       sourceId: item.sourceId,
@@ -477,6 +478,7 @@ function toEvidenceViews(research: ResearchRecord): EvidenceView[] {
       excerpt: item.excerpt,
       body: item.body,
       postedAt: item.postedAt,
+      dateEstimated: item.dateEstimated,
       sentiment: item.sentiment,
       relevance: item.relevance,
       excluded: excluded.has(item.id),

@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef } from "react";
 import {
   buildResearchFollowUp,
+  compareResearchEvidence,
   type LocalStore,
   type Project,
   type ResearchRecord
@@ -478,7 +479,7 @@ function toEvidenceViews(research: ResearchRecord): EvidenceView[] {
   const excluded = new Set(research.exclusions.map((item) => item.evidenceId));
   return research.evidence
     .slice()
-    .sort((left, right) => right.relevance - left.relevance || left.id.localeCompare(right.id))
+    .sort(compareResearchEvidence)
     .map((item, index) => ({
       id: item.id,
       sourceId: item.sourceId,
@@ -489,6 +490,7 @@ function toEvidenceViews(research: ResearchRecord): EvidenceView[] {
       excerpt: item.excerpt,
       body: item.body,
       postedAt: item.postedAt,
+      dateEstimated: item.dateEstimated,
       sentiment: item.sentiment,
       relevance: item.relevance,
       excluded: excluded.has(item.id),

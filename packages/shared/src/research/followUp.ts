@@ -5,7 +5,11 @@ import {
   DEFAULT_RAG_EVIDENCE_LIMIT,
   DEFAULT_RAG_SOURCE_LIMIT
 } from "../rag.js";
-import type { ResearchEvidence, ResearchRecord } from "./types.js";
+import {
+  compareResearchEvidence,
+  type ResearchEvidence,
+  type ResearchRecord
+} from "./types.js";
 
 export interface ResearchFollowUpCitation {
   id: string;
@@ -41,6 +45,12 @@ export function buildResearchFollowUp(input: {
 
   const excluded = new Set(input.research.exclusions.map((item) => item.evidenceId));
   const available = input.research.evidence.filter((item) => !excluded.has(item.id));
+  const citationLabels = new Map(
+    available
+      .slice()
+      .sort(compareResearchEvidence)
+      .map((item, index) => [item.id, `[E${index + 1}]`])
+  );
   const byId = new Map(available.map((item) => [item.id, item]));
   const ranked = rerankEvidence(
     question,
@@ -63,7 +73,8 @@ export function buildResearchFollowUp(input: {
   );
   const context = buildRagContext(
     ranked,
-    input.maxCharacters ?? DEFAULT_RAG_CONTEXT_CHARACTERS
+    input.maxCharacters ?? DEFAULT_RAG_CONTEXT_CHARACTERS,
+    citationLabels
   );
   const citations = context.citations.flatMap((citation) => {
     const evidence = byId.get(citation.commentId);
@@ -72,7 +83,7 @@ export function buildResearchFollowUp(input: {
   const fallbackAnswer = buildFallbackAnswer(citations);
   const prompt = [
     "你是游戏舆论研究助手。只依据以下当前研究证据回答，不联网，不补充未提供的事实。",
-    "所有事实判断必须使用 [E#] 引用；证据不足时明确说明，不要把固定样本比例外推为全体玩家意见。",
+    "所有事实判断必须使用 [E#] 引用；证据不足时明确说明，不要把本次公开样本比例外推为全体玩家意见。",
     `研究游戏：${input.research.request.gameName}`,
     input.research.request.focus ? `研究重点：${input.research.request.focus}` : "",
     `用户问题：${question}`,
@@ -119,5 +130,5 @@ function buildFallbackAnswer(citations: ResearchFollowUpCitation[]): string {
     .slice(0, 3)
     .map((citation) => `${citation.excerpt} ${citation.label}`)
     .join("；");
-  return `基于当前研究的固定样本，可以先确认：${points}。如需更精确的判断，应继续核查这些来源，而不是把样本结论外推到全部玩家。`;
+  return `基于当前研究的公开样本，可以先确认：${points}。如需更精确的判断，应继续核查这些来源，而不是把样本结论外推到全部玩家。`;
 }

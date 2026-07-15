@@ -77,6 +77,7 @@ export interface EvidenceView {
   excerpt: string;
   body: string;
   postedAt: string;
+  dateEstimated?: boolean;
   sentiment: Exclude<ResearchSentimentView, "mixed">;
   relevance: number;
   excluded?: boolean;

@@ -52,6 +52,21 @@ const topicDefinitions: TopicDefinition[] = [
       "gameplay",
       "co-op"
     ]
+  },
+  {
+    id: "visual-audio",
+    label: "画面与音频表现",
+    keywords: ["画面", "美术", "建模", "音乐", "音效", "graphics", "visual", "art", "music", "audio"]
+  },
+  {
+    id: "value-monetization",
+    label: "价格与商业化",
+    keywords: ["价格", "定价", "氪金", "付费", "dlc", "退款", "price", "value", "monetization", "refund"]
+  },
+  {
+    id: "story-world",
+    label: "剧情与世界观",
+    keywords: ["剧情", "故事", "角色", "世界观", "叙事", "story", "narrative", "character", "world"]
   }
 ];
 
@@ -95,7 +110,7 @@ export class DeterministicReportGenerator implements ResearchReportGenerator {
         .map((item) => item.excerpt),
       controversies: topics
         .filter((topic) => topic.sentiment === "mixed")
-        .map((topic) => `${topic.label}的固定样本观点存在明显分歧。`),
+        .map((topic) => `${topic.label}的公开样本观点存在明显分歧。`),
       coverage: {
         coveredSources: research.sources.filter((source) => source.status === "covered").length,
         failedSources: research.sources.filter((source) => source.status === "failed").length,
@@ -187,7 +202,7 @@ function buildTopic(
 ): ResearchTopic | undefined {
   const matched = evidence.filter((item) => {
     const searchable = `${item.body} ${item.sourceTitle}`.toLowerCase();
-    return definition.keywords.some((keyword) => searchable.includes(keyword));
+    return definition.keywords.some((keyword) => matchesKeyword(searchable, keyword));
   });
   if (matched.length === 0) {
     return undefined;
@@ -203,7 +218,7 @@ function buildTopic(
     id: definition.id,
     label: definition.label,
     sentiment,
-    summary: `${matched.length} 条固定样本涉及${definition.label}，观点${sentimentLabel(sentiment)}。`,
+    summary: `${matched.length} 条公开样本涉及${definition.label}，观点${sentimentLabel(sentiment)}。`,
     evidenceIds: matched.slice().sort(compareEvidence).map((item) => item.id)
   };
 }
@@ -231,12 +246,12 @@ function buildVerdict(evidenceCount: number, positiveRate: number, negativeRate:
   }
   const delta = positiveRate - negativeRate;
   if (delta >= 20) {
-    return "固定验证样本中的整体风评偏正面，但仍需结合具体风险判断。";
+    return "本次公开样本中的整体风评偏正面，但仍需结合具体风险判断。";
   }
   if (delta <= -20) {
-    return "固定验证样本中的整体风评偏负面，主要风险需要优先核查。";
+    return "本次公开样本中的整体风评偏负面，主要风险需要优先核查。";
   }
-  return "固定验证样本中的风评较为分化，优势与风险同时存在。";
+  return "本次公开样本中的风评较为分化，优势与风险同时存在。";
 }
 
 function buildSummary(
@@ -246,12 +261,19 @@ function buildSummary(
   topics: ResearchTopic[]
 ): string {
   if (evidenceCount === 0) {
-    return `当前没有可用于分析${research.request.gameName}的固定验证样本，不能生成确定性结论。`;
+    return `当前没有采集到足够的公开证据用于分析${research.request.gameName}，不能生成确定性结论。`;
   }
   const focus = research.request.focus ? `，重点关注“${research.request.focus}”` : "";
-  return `本报告使用 ${evidenceCount} 条固定验证样本分析${research.request.gameName}${focus}。样本内正面 ${rates.positiveRate}%、中性 ${rates.neutralRate}%、负面 ${rates.negativeRate}%，归纳出 ${topics.length} 个主要主题；这些比例不代表全体玩家。`;
+  return `本报告使用 ${evidenceCount} 条公开样本分析${research.request.gameName}${focus}。样本内正面 ${rates.positiveRate}%、中性 ${rates.neutralRate}%、负面 ${rates.negativeRate}%，归纳出 ${topics.length} 个主要主题；这些比例不代表全体玩家。`;
 }
 
 function compareEvidence(left: ResearchEvidence, right: ResearchEvidence): number {
   return right.relevance - left.relevance || right.postedAt.localeCompare(left.postedAt) || left.id.localeCompare(right.id);
+}
+
+function matchesKeyword(searchable: string, keyword: string): boolean {
+  if (!/^[a-z0-9-]+$/i.test(keyword)) {
+    return searchable.includes(keyword);
+  }
+  return new RegExp(`(^|[^a-z0-9])${keyword}([^a-z0-9]|$)`, "i").test(searchable);
 }

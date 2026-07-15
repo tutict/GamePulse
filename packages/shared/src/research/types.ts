@@ -41,6 +41,7 @@ export interface ResearchEvidence {
   body: string;
   excerpt: string;
   postedAt: string;
+  dateEstimated?: boolean;
   sentiment: Exclude<ResearchSentiment, "mixed">;
   relevance: number;
 }
@@ -131,4 +132,11 @@ export function createResearch(
     createdAt: now,
     updatedAt: now
   };
+}
+
+export function compareResearchEvidence(
+  left: ResearchEvidence,
+  right: ResearchEvidence
+): number {
+  return right.relevance - left.relevance || left.id.localeCompare(right.id);
 }

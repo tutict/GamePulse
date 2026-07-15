@@ -51,9 +51,9 @@ await build({
     rollupOptions: {
       external,
       output: {
-        entryFileNames: "index.mjs",
-        chunkFileNames: "[name]-[hash].mjs",
-        format: "es"
+        entryFileNames: "index.cjs",
+        chunkFileNames: "[name]-[hash].cjs",
+        format: "cjs"
       }
     }
   }

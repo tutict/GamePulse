@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-import Database from "better-sqlite3";
+import { dirname, resolve } from "node:path";
+import BetterSqlite3 from "better-sqlite3";
 import {
   buildFts5Query,
   buildRagContentHash,
@@ -161,8 +162,19 @@ const migrations = [
   }
 ] as const;
 
+const Database = resolveDatabaseConstructor();
+
+function resolveDatabaseConstructor(): typeof BetterSqlite3 {
+  const nativeRoot = process.env.GAMEPULSE_ELECTRON_NATIVE_MODULES;
+  if (!nativeRoot) {
+    return BetterSqlite3;
+  }
+  const nativeRequire = createRequire(resolve(nativeRoot, "package.json"));
+  return nativeRequire("better-sqlite3") as typeof BetterSqlite3;
+}
+
 export class SqliteLocalStore implements LocalStore {
-  private database: Database.Database | undefined;
+  private database: BetterSqlite3.Database | undefined;
 
   constructor(readonly databasePath: string) {}
 
@@ -522,7 +534,7 @@ export class SqliteLocalStore implements LocalStore {
     }
   }
 
-  private requireDatabase(): Database.Database {
+  private requireDatabase(): BetterSqlite3.Database {
     if (!this.database) {
       throw new Error("SqliteLocalStore is not initialized");
     }

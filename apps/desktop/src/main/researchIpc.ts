@@ -1,10 +1,11 @@
 import { ipcMain, type WebContents } from "electron";
 import {
   DeterministicReportGenerator,
-  FixtureResearchCollector,
   type ResearchRecord
 } from "@gamepulse/shared";
+import { ChromiumResearchPageReader } from "./chromiumResearchPageReader.js";
 import { getDesktopStore } from "./database.js";
+import { LiveResearchCollector } from "./liveResearchCollector.js";
 import { DesktopResearchService } from "./researchService.js";
 import { assertTrustedIpcSender } from "./security.js";
 
@@ -13,7 +14,7 @@ let service: DesktopResearchService | undefined;
 export function initializeResearchServices(): void {
   service = new DesktopResearchService({
     repository: getDesktopStore(),
-    collector: new FixtureResearchCollector(),
+    collector: new LiveResearchCollector(new ChromiumResearchPageReader()),
     reportGenerator: new DeterministicReportGenerator()
   });
 }
