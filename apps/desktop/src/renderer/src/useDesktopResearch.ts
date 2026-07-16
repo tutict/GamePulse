@@ -7,6 +7,7 @@ import {
 } from "@gamepulse/shared";
 import type {
   EvidenceView,
+  ModelDiscoveryInput,
   ResearchHistoryItem,
   ResearchSettingsInput,
   ResearchWorkspaceModel,
@@ -28,6 +29,11 @@ interface DesktopResearchState {
   followUpBusy: boolean;
   settingsMessage?: string;
   packageStatus?: string;
+  availableModels: string[];
+  modelsLoading: boolean;
+  modelsError?: string;
+  modelsProvider?: "openai" | "ollama";
+  modelsBaseUrl?: string;
 }
 
 type DesktopResearchAction = {
@@ -40,7 +46,9 @@ const initialState: DesktopResearchState = {
   history: [],
   projects: [],
   busy: false,
-  followUpBusy: false
+  followUpBusy: false,
+  availableModels: [],
+  modelsLoading: false
 };
 
 function reducer(
@@ -53,6 +61,7 @@ function reducer(
 export function useDesktopResearch() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const activeModelRequest = useRef("");
+  const modelCatalogRequest = useRef(0);
   const followUpFallback = useRef("");
   const modelAnswerText = useRef("");
 
@@ -296,6 +305,45 @@ export function useDesktopResearch() {
     }
   }
 
+  async function discoverModels(input: ModelDiscoveryInput) {
+    const requestId = ++modelCatalogRequest.current;
+    const modelsBaseUrl = input.baseUrl.trim().replace(/\/+$/, "");
+    dispatch({
+      type: "patch",
+      value: {
+        availableModels: [],
+        modelsProvider: input.provider,
+        modelsBaseUrl,
+        modelsLoading: true,
+        modelsError: undefined
+      }
+    });
+    try {
+      const result = await window.gamepulse.models.list(input);
+      if (requestId !== modelCatalogRequest.current) {
+        return;
+      }
+      dispatch({
+        type: "patch",
+        value: {
+          availableModels: result.models,
+          modelsLoading: false,
+          modelsError: result.models.length === 0
+            ? "模型服务没有返回可用模型。"
+            : undefined
+        }
+      });
+    } catch (error) {
+      if (requestId !== modelCatalogRequest.current) {
+        return;
+      }
+      dispatch({
+        type: "patch",
+        value: { modelsLoading: false, modelsError: errorMessage(error) }
+      });
+    }
+  }
+
   async function importData() {
     dispatch({ type: "patch", value: { packageStatus: "正在导入…", busy: true } });
     try {
@@ -349,6 +397,7 @@ export function useDesktopResearch() {
     excludeEvidence,
     regenerateReport,
     askFollowUp,
+    discoverModels,
     saveSettings,
     importData,
     exportData
@@ -369,6 +418,12 @@ function buildWorkspaceModel(state: DesktopResearchState): ResearchWorkspaceMode
         provider: status?.provider ?? "openai",
         baseUrl: status?.baseUrl ?? "https://api.openai.com/v1",
         model: status?.model ?? "gpt-4.1-mini",
+        availableModels: state.availableModels,
+        modelsProvider: state.modelsProvider,
+        modelsBaseUrl: state.modelsBaseUrl,
+        modelsLoading: state.modelsLoading,
+        modelsError: state.modelsError,
+        hasApiKey: Boolean(status?.hasApiKey),
         apiKeyHint: status?.apiKeyHint,
         credentialsReady: status?.provider === "ollama" || Boolean(status?.hasApiKey),
         supportsOllama: true,

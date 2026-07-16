@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useRef } from "react";
 import {
+  assertSecureModelBaseUrl,
   buildResearchFollowUp,
   compareResearchEvidence,
   type LocalStore,
@@ -8,6 +9,7 @@ import {
 } from "@gamepulse/shared";
 import type {
   EvidenceView,
+  ModelDiscoveryInput,
   ResearchHistoryItem,
   ResearchSettingsInput,
   ResearchWorkspaceModel,
@@ -44,6 +46,11 @@ interface MobileResearchState {
   followUpBusy: boolean;
   settingsMessage?: string;
   packageStatus?: string;
+  availableModels: string[];
+  modelsLoading: boolean;
+  modelsError?: string;
+  modelsProvider?: "openai" | "ollama";
+  modelsBaseUrl?: string;
 }
 
 type MobileResearchAction = {
@@ -56,7 +63,9 @@ const initialState: MobileResearchState = {
   history: [],
   projects: [],
   busy: true,
-  followUpBusy: false
+  followUpBusy: false,
+  availableModels: [],
+  modelsLoading: false
 };
 
 function reducer(state: MobileResearchState, action: MobileResearchAction): MobileResearchState {
@@ -68,6 +77,7 @@ export function useMobileResearch() {
   const storeRef = useRef<LocalStore | undefined>(undefined);
   const controllerRef = useRef<MobileResearchController | undefined>(undefined);
   const modelAbort = useRef<AbortController | undefined>(undefined);
+  const modelCatalogRequest = useRef(0);
 
   useEffect(() => {
     let disposed = false;
@@ -308,6 +318,61 @@ export function useMobileResearch() {
     }
   }
 
+  async function discoverModels(input: ModelDiscoveryInput) {
+    const requestId = ++modelCatalogRequest.current;
+    const modelsBaseUrl = input.baseUrl.trim().replace(/\/+$/, "");
+    dispatch({
+      type: "patch",
+      value: {
+        availableModels: [],
+        modelsProvider: input.provider,
+        modelsBaseUrl,
+        modelsLoading: true,
+        modelsError: undefined
+      }
+    });
+    try {
+      if (input.provider !== "openai") {
+        throw new Error("Android 当前仅支持 OpenAI-compatible 模型服务");
+      }
+      let apiKey = input.apiKey?.trim();
+      if (!apiKey) {
+        const stored = await resolveRemoteModelConfig();
+        if (normalizeBaseUrl(stored.baseUrl) !== normalizeBaseUrl(input.baseUrl)) {
+          throw new Error("API key is required for this endpoint");
+        }
+        apiKey = stored.apiKey;
+      }
+      const gateway = new RemoteModelGateway({
+        baseUrl: assertSecureModelBaseUrl(input.baseUrl),
+        model: state.modelStatus?.model ?? "",
+        apiKey
+      });
+      const availableModels = await gateway.listModels();
+      if (requestId !== modelCatalogRequest.current) {
+        return;
+      }
+      dispatch({
+        type: "patch",
+        value: {
+          availableModels,
+          modelsLoading: false,
+          modelsError: availableModels.length === 0
+            ? "模型服务没有返回可用模型。"
+            : undefined
+        }
+      });
+    } catch (error) {
+      if (requestId !== modelCatalogRequest.current) {
+        return;
+      }
+      dispatch({
+        type: "patch",
+        value: { modelsLoading: false, modelsError: errorMessage(error) }
+      });
+    }
+  }
+
   async function importData() {
     const store = storeRef.current;
     if (!store) {
@@ -362,6 +427,7 @@ export function useMobileResearch() {
     excludeEvidence,
     regenerateReport,
     askFollowUp,
+    discoverModels,
     saveSettings,
     importData,
     exportData
@@ -382,6 +448,12 @@ function buildWorkspaceModel(state: MobileResearchState): ResearchWorkspaceModel
         provider: "openai",
         baseUrl: status?.baseUrl ?? "https://api.openai.com/v1",
         model: status?.model ?? "gpt-4.1-mini",
+        availableModels: state.availableModels,
+        modelsProvider: state.modelsProvider,
+        modelsBaseUrl: state.modelsBaseUrl,
+        modelsLoading: state.modelsLoading,
+        modelsError: state.modelsError,
+        hasApiKey: Boolean(status?.hasApiKey),
         apiKeyHint: status?.apiKeyHint,
         credentialsReady: Boolean(status?.hasApiKey),
         supportsOllama: false,
@@ -508,6 +580,17 @@ function progressStatus(status: ResearchRecord["status"]): "running" | "needs_in
     return status;
   }
   return "running";
+}
+
+function normalizeBaseUrl(value: string): string {
+  const normalized = value.trim().replace(/\/+$/, "");
+  try {
+    const url = new URL(normalized);
+    url.hash = "";
+    return url.href.replace(/\/+$/, "");
+  } catch {
+    return normalized;
+  }
 }
 
 function errorMessage(error: unknown): string {

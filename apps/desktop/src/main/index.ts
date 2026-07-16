@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, nativeTheme } from "electron";
+import { app, BrowserWindow } from "electron";
 import { registerCollectorHandlers } from "./collector.js";
 import {
   initializeDesktopDatabase,
@@ -20,18 +20,24 @@ import {
   shutdownResearchServices
 } from "./researchIpc.js";
 import { isTrustedRendererUrl, openExternalIfSafe } from "./security.js";
+import {
+  getThemeBackgroundColor,
+  initializeThemeService,
+  registerThemeHandlers
+} from "./themeIpc.js";
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
 function createMainWindow(): void {
   const window = new BrowserWindow({
+    show: false,
     width: 1440,
     height: 960,
     minWidth: 360,
     minHeight: 600,
     title: "GamePulse",
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#171a1c" : "#e9eadf",
+    backgroundColor: getThemeBackgroundColor(),
     webPreferences: {
       preload: join(currentDir, "../preload/index.cjs"),
       contextIsolation: true,
@@ -49,6 +55,7 @@ function createMainWindow(): void {
       event.preventDefault();
     }
   });
+  window.once("ready-to-show", () => window.show());
 
   if (isDev && process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -59,6 +66,7 @@ function createMainWindow(): void {
 
 app.whenReady()
   .then(async () => {
+    initializeThemeService();
     await initializeDesktopDatabase();
     initializeModelServices();
     initializeResearchServices();
@@ -68,6 +76,7 @@ app.whenReady()
     registerRagHandlers();
     registerResearchHandlers();
     registerModelHandlers();
+    registerThemeHandlers();
     createMainWindow();
 
     app.on("activate", () => {

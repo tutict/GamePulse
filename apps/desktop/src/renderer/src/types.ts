@@ -100,6 +100,11 @@ export interface GamePulseBridge {
     electron?: string;
     node?: string;
   };
+  theme: {
+    setPreference(preference: "system" | "light" | "dark"): Promise<{
+      preference: "system" | "light" | "dark";
+    }>;
+  };
   collector: {
     captureVisible(url: string): Promise<CollectorResult>;
   };
@@ -132,6 +137,11 @@ export interface GamePulseBridge {
   };  models: {
     getStatus(): Promise<ModelConfigStatus>;
     updateConfig(input: ModelConfigInput): Promise<ModelConfigStatus>;
+    list(input: {
+      provider: "openai" | "ollama";
+      baseUrl: string;
+      apiKey?: string;
+    }): Promise<{ models: string[] }>;
     start(input: {
       requestId: string;
       messages: ModelMessage[];

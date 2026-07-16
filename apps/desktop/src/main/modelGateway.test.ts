@@ -11,6 +11,44 @@ const request: ModelRequest = {
 };
 
 describe("model gateways", () => {
+  it("lists and normalizes OpenAI-compatible models", async () => {
+    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const gateway = new OpenAICompatibleGateway({
+      apiKey: "secret",
+      baseUrl: "https://example.test/v1/",
+      fetch: async (input, init) => {
+        requests.push({ input, init });
+        return Response.json({
+          data: [{ id: "gpt-z" }, { id: "gpt-a" }, { id: "gpt-a" }, { id: "" }]
+        });
+      }
+    });
+
+    expect(await gateway.listModels()).toEqual(["gpt-a", "gpt-z"]);
+    expect(String(requests[0]?.input)).toBe("https://example.test/v1/models");
+    expect(new Headers(requests[0]?.init?.headers).get("authorization")).toBe(
+      "Bearer secret"
+    );
+  });
+
+  it("lists installed Ollama models", async () => {
+    const gateway = new OllamaGateway({
+      baseUrl: "http://127.0.0.1:11434/",
+      fetch: async (input) => {
+        expect(String(input)).toBe("http://127.0.0.1:11434/api/tags");
+        return Response.json({
+          models: [
+            { name: "qwen3:8b" },
+            { model: "deepseek-r1:7b" },
+            { name: "qwen3:8b" }
+          ]
+        });
+      }
+    });
+
+    expect(await gateway.listModels()).toEqual(["deepseek-r1:7b", "qwen3:8b"]);
+  });
+
   it("streams OpenAI-compatible SSE responses", async () => {
     const gateway = new OpenAICompatibleGateway({
       apiKey: "secret",

@@ -60,3 +60,4 @@ apps/mobile/android/**/*.aab
 # Local agent workspaces and visual drafts
 .worktrees/
 .superpowers/
+.playwright-cli/

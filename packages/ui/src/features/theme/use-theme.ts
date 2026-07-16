@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export type ThemePreference = "system" | "light" | "dark";
 export type ResolvedTheme = Exclude<ThemePreference, "system">;
@@ -6,9 +6,13 @@ export type ResolvedTheme = Exclude<ThemePreference, "system">;
 const storageKey = "gamepulse-theme";
 const darkMediaQuery = "(prefers-color-scheme: dark)";
 
-export function useThemePreference() {
+export function useThemePreference(
+  onPreferenceChange?: (preference: ThemePreference) => void
+) {
   const [preference, setPreference] = useState<ThemePreference>(readPreference);
   const [systemDark, setSystemDark] = useState(readSystemDark);
+  const preferenceChangeRef = useRef(onPreferenceChange);
+  preferenceChangeRef.current = onPreferenceChange;
   const resolvedTheme: ResolvedTheme =
     preference === "system" ? (systemDark ? "dark" : "light") : preference;
 
@@ -48,6 +52,10 @@ export function useThemePreference() {
       .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
       ?.setAttribute("content", resolvedTheme === "dark" ? "#171a1c" : "#e9eadf");
   }, [resolvedTheme]);
+
+  useEffect(() => {
+    preferenceChangeRef.current?.(preference);
+  }, [preference]);
 
   const updatePreference = useCallback((next: ThemePreference) => {
     setPreference(next);

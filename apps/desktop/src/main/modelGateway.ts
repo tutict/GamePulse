@@ -18,6 +18,11 @@ interface OllamaGatewayOptions {
   fetch?: FetchLike;
 }
 
+interface ModelListOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
 export class ModelGatewayError extends Error {
   override readonly name = "ModelGatewayError";
 
@@ -37,6 +42,26 @@ export class OpenAICompatibleGateway implements ModelGateway {
 
   constructor(private readonly options: OpenAICompatibleGatewayOptions) {
     this.fetch = options.fetch ?? globalThis.fetch;
+  }
+
+  async listModels(options: ModelListOptions = {}): Promise<string[]> {
+    const abort = createAbortContext(options.signal, options.timeoutMs ?? 15_000);
+    try {
+      throwIfAborted("openai", options.signal, abort.timedOut());
+      const response = await this.fetch(
+        `${trimTrailingSlash(this.options.baseUrl)}/models`,
+        {
+          headers: { authorization: `Bearer ${this.options.apiKey}` },
+          signal: abort.signal
+        }
+      );
+      await assertResponse(response, "openai");
+      return parseOpenAiModels(await response.json());
+    } catch (error) {
+      throw normalizeError(error, "openai", options.signal, abort.timedOut());
+    } finally {
+      abort.cleanup();
+    }
   }
 
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
@@ -105,6 +130,23 @@ export class OllamaGateway implements ModelGateway {
 
   constructor(private readonly options: OllamaGatewayOptions) {
     this.fetch = options.fetch ?? globalThis.fetch;
+  }
+
+  async listModels(options: ModelListOptions = {}): Promise<string[]> {
+    const abort = createAbortContext(options.signal, options.timeoutMs ?? 15_000);
+    try {
+      throwIfAborted("ollama", options.signal, abort.timedOut());
+      const response = await this.fetch(
+        `${trimTrailingSlash(this.options.baseUrl)}/api/tags`,
+        { signal: abort.signal }
+      );
+      await assertResponse(response, "ollama");
+      return parseOllamaModels(await response.json());
+    } catch (error) {
+      throw normalizeError(error, "ollama", options.signal, abort.timedOut());
+    } finally {
+      abort.cleanup();
+    }
   }
 
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
@@ -261,6 +303,50 @@ function normalizeError(
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
+}
+
+function parseOpenAiModels(value: unknown): string[] {
+  if (!isRecord(value) || !Array.isArray(value.data)) {
+    throw new ModelGatewayError(
+      "openai",
+      "INVALID_RESPONSE",
+      "OpenAI-compatible model list response is invalid",
+      false
+    );
+  }
+  return normalizeModelIds(value.data.map((item) =>
+    isRecord(item) && typeof item.id === "string" ? item.id : ""
+  ));
+}
+
+function parseOllamaModels(value: unknown): string[] {
+  if (!isRecord(value) || !Array.isArray(value.models)) {
+    throw new ModelGatewayError(
+      "ollama",
+      "INVALID_RESPONSE",
+      "Ollama model list response is invalid",
+      false
+    );
+  }
+  return normalizeModelIds(value.models.map((item) => {
+    if (!isRecord(item)) {
+      return "";
+    }
+    return typeof item.model === "string"
+      ? item.model
+      : typeof item.name === "string"
+        ? item.name
+        : "";
+  }));
+}
+
+function normalizeModelIds(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function trimTrailingSlash(value: string): string {

@@ -7,16 +7,18 @@ import {
   Monitor,
   Moon,
   Palette,
+  RefreshCw,
   Save,
   ShieldCheck,
   Sun,
   Upload
 } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Badge } from "../../components/badge.js";
 import { Button } from "../../components/button.js";
 import { Input } from "../../components/input.js";
 import type {
+  ModelDiscoveryInput,
   ResearchSettingsInput,
   ResearchSettingsView
 } from "./types.js";
@@ -25,6 +27,7 @@ import type { ThemePreference } from "../theme/use-theme.js";
 export function ResearchSettings(props: {
   settings: ResearchSettingsView;
   onSaveSettings?: (settings: ResearchSettingsInput) => void;
+  onDiscoverModels?: (input: ModelDiscoveryInput) => void;
   onImportData?: () => void;
   onExportData?: () => void;
   themePreference: ThemePreference;
@@ -34,6 +37,23 @@ export function ResearchSettings(props: {
   const [baseUrl, setBaseUrl] = useState(props.settings.baseUrl);
   const [model, setModel] = useState(props.settings.model);
   const [apiKey, setApiKey] = useState("");
+  const automaticDiscoveryRef = useRef("");
+
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+  const storedEndpointMatches = props.settings.provider === provider
+    && normalizeBaseUrl(props.settings.baseUrl) === normalizedBaseUrl;
+  const canReuseStoredKey = provider === "openai"
+    && Boolean(props.settings.hasApiKey)
+    && storedEndpointMatches;
+  const canDiscover = provider === "ollama" || Boolean(apiKey.trim()) || canReuseStoredKey;
+  const catalogMatches = props.settings.modelsProvider === provider
+    && normalizeBaseUrl(props.settings.modelsBaseUrl ?? "") === normalizedBaseUrl;
+  const modelOptions = catalogMatches
+    ? [...new Set(props.settings.availableModels ?? [])]
+    : [];
+  const selectedModel = modelOptions.includes(model) ? model : "";
+  const modelsLoading = catalogMatches && Boolean(props.settings.modelsLoading);
+  const modelsError = catalogMatches ? props.settings.modelsError : undefined;
 
   useEffect(() => {
     setProvider(props.settings.provider);
@@ -46,10 +66,67 @@ export function ResearchSettings(props: {
     props.settings.provider
   ]);
 
+  useEffect(() => {
+    const key = discoveryKey(provider, normalizedBaseUrl, apiKey, canReuseStoredKey);
+    if (
+      !canDiscover ||
+      !props.onDiscoverModels ||
+      !normalizedBaseUrl ||
+      automaticDiscoveryRef.current === key
+    ) {
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      if (automaticDiscoveryRef.current === key) {
+        return;
+      }
+      automaticDiscoveryRef.current = key;
+      props.onDiscoverModels?.({
+        provider,
+        baseUrl: normalizedBaseUrl,
+        apiKey: apiKey.trim() || undefined
+      });
+    }, 500);
+    return () => window.clearTimeout(timeout);
+  }, [
+    apiKey,
+    canDiscover,
+    canReuseStoredKey,
+    normalizedBaseUrl,
+    provider,
+    props.onDiscoverModels,
+    props.settings.hasApiKey,
+    props.settings.provider
+  ]);
+
+  useEffect(() => {
+    const available = props.settings.availableModels ?? [];
+    if (catalogMatches && available.length > 0 && !available.includes(model)) {
+      setModel(available[0] ?? "");
+    }
+  }, [catalogMatches, model, props.settings.availableModels]);
+
+  function discoverModels() {
+    if (!normalizedBaseUrl || !canDiscover) {
+      return;
+    }
+    automaticDiscoveryRef.current = discoveryKey(
+      provider,
+      normalizedBaseUrl,
+      apiKey,
+      canReuseStoredKey
+    );
+    props.onDiscoverModels?.({
+      provider,
+      baseUrl: normalizedBaseUrl,
+      apiKey: apiKey.trim() || undefined
+    });
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedBaseUrl = baseUrl.trim();
-    const normalizedModel = model.trim();
+    const normalizedModel = selectedModel.trim();
     if (!normalizedBaseUrl || !normalizedModel) {
       return;
     }
@@ -155,7 +232,16 @@ export function ResearchSettings(props: {
                         : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                     }`}
                     key={item}
-                    onClick={() => setProvider(item)}
+                    onClick={() => {
+                      setProvider(item);
+                      setModel("");
+                      setApiKey("");
+                      if (item === "ollama" && baseUrl === "https://api.openai.com/v1") {
+                        setBaseUrl("http://127.0.0.1:11434");
+                      } else if (item === "openai" && baseUrl === "http://127.0.0.1:11434") {
+                        setBaseUrl("https://api.openai.com/v1");
+                      }
+                    }}
                     type="button"
                   >
                     {item === "openai" ? "OpenAI-compatible" : "Ollama"}
@@ -169,17 +255,12 @@ export function ResearchSettings(props: {
             <Input
               className="h-11 bg-card text-base"
               id="research-model-base-url"
-              onChange={(event) => setBaseUrl(event.target.value)}
+              onChange={(event) => {
+                setBaseUrl(event.target.value);
+                setModel("");
+                setApiKey("");
+              }}
               value={baseUrl}
-            />
-          </label>
-          <label className="grid gap-2 text-sm font-semibold" htmlFor="research-model-name">
-            模型
-            <Input
-              className="h-11 bg-card text-base"
-              id="research-model-name"
-              onChange={(event) => setModel(event.target.value)}
-              value={model}
             />
           </label>
           {provider === "openai" ? (
@@ -196,13 +277,59 @@ export function ResearchSettings(props: {
               />
             </label>
           ) : null}
+          <div className="grid gap-2">
+            <label className="text-sm font-semibold" htmlFor="research-model-name">
+              模型
+            </label>
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <select
+                className="h-11 min-w-0 rounded-md border border-input bg-card px-3 text-base text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-55"
+                disabled={modelsLoading}
+                id="research-model-name"
+                onChange={(event) => setModel(event.target.value)}
+                value={selectedModel}
+              >
+                <option disabled value="">
+                  {modelsLoading ? "正在获取模型..." : "请先获取模型列表"}
+                </option>
+                {modelOptions.map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+              <Button
+                className="h-11 w-full sm:w-auto"
+                disabled={props.settings.busy || modelsLoading || !normalizedBaseUrl || !canDiscover}
+                onClick={discoverModels}
+                type="button"
+                variant="outline"
+              >
+                <RefreshCw
+                  aria-hidden="true"
+                  className={modelsLoading ? "animate-spin motion-reduce:animate-none" : ""}
+                />
+                刷新模型列表
+              </Button>
+            </div>
+            <p
+              className={`m-0 text-sm ${modelsError ? "text-destructive" : "text-muted-foreground"}`}
+              role={modelsError ? "alert" : "status"}
+            >
+              {modelsLoading
+                ? "正在从模型服务获取可用列表..."
+                : modelsError
+                  ? modelsError
+                  : modelOptions.length > 0
+                    ? `已发现 ${modelOptions.length} 个模型。`
+                    : "填写连接信息后刷新模型列表。"}
+            </p>
+          </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-sm text-muted-foreground" role="status">
               {props.settings.message ?? "API Key 不会进入研究导出文件。"}
             </span>
             <Button
               className="h-11 w-full sm:w-auto"
-              disabled={props.settings.busy || !baseUrl.trim() || !model.trim()}
+              disabled={props.settings.busy || !baseUrl.trim() || !selectedModel}
               type="submit"
             >
               <Save aria-hidden="true" />
@@ -250,4 +377,18 @@ export function ResearchSettings(props: {
       ) : null}
     </div>
   );
+}
+
+function normalizeBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/, "");
+}
+
+function discoveryKey(
+  provider: "openai" | "ollama",
+  baseUrl: string,
+  apiKey: string,
+  canReuseStoredKey: boolean
+): string {
+  const credential = apiKey.trim() || (canReuseStoredKey ? "stored" : "none");
+  return `${provider}\n${baseUrl}\n${credential}`;
 }

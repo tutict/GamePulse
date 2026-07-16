@@ -7,6 +7,11 @@ contextBridge.exposeInMainWorld("gamepulse", {
     electron: process.versions.electron,
     node: process.versions.node
   },
+  theme: {
+    setPreference(preference: "system" | "light" | "dark") {
+      return ipcRenderer.invoke("theme:set-preference", preference);
+    }
+  },
   collector: {
     captureVisible(url: string) {
       return ipcRenderer.invoke("collector:capture-visible", { url });
@@ -76,6 +81,13 @@ contextBridge.exposeInMainWorld("gamepulse", {
     },
     updateConfig(input: unknown) {
       return ipcRenderer.invoke("models:update-config", input);
+    },
+    list(input: {
+      provider: "openai" | "ollama";
+      baseUrl: string;
+      apiKey?: string;
+    }) {
+      return ipcRenderer.invoke("models:list", input);
     },
     start(input: unknown) {
       return ipcRenderer.invoke("models:start", input);

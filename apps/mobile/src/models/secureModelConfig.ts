@@ -1,4 +1,8 @@
 import { SecureStorage } from "@aparajita/capacitor-secure-storage";
+import {
+  assertSecureModelBaseUrl,
+  normalizeModelBaseUrl
+} from "@gamepulse/shared";
 
 const configKey = "gamepulse.remote-model";
 const apiKeyKey = "gamepulse.remote-model.api-key";
@@ -27,6 +31,11 @@ export interface ResolvedRemoteModelConfig extends StoredRemoteModelConfig {
 
 export async function getRemoteModelStatus(): Promise<RemoteModelConfigStatus> {
   const config = await readConfig();
+  try {
+    assertSecureModelBaseUrl(config.baseUrl);
+  } catch {
+    return { ...config, hasApiKey: false, apiKeyHint: undefined };
+  }
   const apiKey = await readApiKey();
   return {
     ...config,
@@ -38,14 +47,20 @@ export async function getRemoteModelStatus(): Promise<RemoteModelConfigStatus> {
 export async function saveRemoteModelConfig(
   input: RemoteModelConfigInput
 ): Promise<RemoteModelConfigStatus> {
+  const current = await readConfig();
   const config: StoredRemoteModelConfig = {
-    baseUrl: normalizeBaseUrl(input.baseUrl),
+    baseUrl: assertSecureModelBaseUrl(input.baseUrl),
     model: input.model.trim()
   };
   if (!config.baseUrl || !config.model) {
     throw new Error("Base URL and model are required");
   }
 
+  const endpointChanged = normalizeBaseUrl(current.baseUrl)
+    !== normalizeModelBaseUrl(config.baseUrl);
+  if (endpointChanged) {
+    await SecureStorage.remove(apiKeyKey);
+  }
   await SecureStorage.set(configKey, config);
   if (input.apiKey !== undefined) {
     const apiKey = input.apiKey.trim();
@@ -60,11 +75,12 @@ export async function saveRemoteModelConfig(
 
 export async function resolveRemoteModelConfig(): Promise<ResolvedRemoteModelConfig> {
   const config = await readConfig();
+  const baseUrl = assertSecureModelBaseUrl(config.baseUrl);
   const apiKey = await readApiKey();
   if (!apiKey) {
     throw new Error("Remote model API key is not configured");
   }
-  return { ...config, apiKey };
+  return { ...config, baseUrl, apiKey };
 }
 
 async function readConfig(): Promise<StoredRemoteModelConfig> {
@@ -95,5 +111,9 @@ function isStoredConfig(value: unknown): value is StoredRemoteModelConfig {
 }
 
 function normalizeBaseUrl(value: string): string {
-  return value.trim().replace(/\/+$/, "");
+  try {
+    return normalizeModelBaseUrl(value);
+  } catch {
+    return value.trim().replace(/\/+$/, "");
+  }
 }

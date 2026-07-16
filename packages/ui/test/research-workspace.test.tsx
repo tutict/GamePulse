@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -79,12 +79,89 @@ const settingsModel: ResearchWorkspaceModel = {
     provider: "openai",
     baseUrl: "https://api.openai.com/v1",
     model: "gpt-4.1-mini",
+    availableModels: ["gpt-4.1-mini", "gpt-4.1"],
+    modelsProvider: "openai",
+    modelsBaseUrl: "https://api.openai.com/v1",
+    hasApiKey: true,
     credentialsReady: false,
     supportsOllama: true
   }
 };
 
 describe("ResearchWorkspace", () => {
+  it("loads models automatically and uses a model selector", async () => {
+    const user = userEvent.setup();
+    const onDiscoverModels = vi.fn();
+    const onSaveSettings = vi.fn();
+    render(
+      <ResearchWorkspace
+        model={settingsModel}
+        onDiscoverModels={onDiscoverModels}
+        onSaveSettings={onSaveSettings}
+      />
+    );
+
+    await waitFor(() => {
+      expect(onDiscoverModels).toHaveBeenCalledWith({
+        provider: "openai",
+        baseUrl: "https://api.openai.com/v1",
+        apiKey: undefined
+      });
+    });
+    const modelSelect = screen.getByRole("combobox", { name: "模型" });
+    await user.selectOptions(modelSelect, "gpt-4.1");
+    await user.click(screen.getByRole("button", { name: "保存模型设置" }));
+    expect(onSaveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-4.1" })
+    );
+    expect(screen.queryByRole("textbox", { name: "模型" })).toBeNull();
+  });
+
+  it("invalidates temporary credentials and model options when the endpoint changes", async () => {
+    const user = userEvent.setup();
+    const onDiscoverModels = vi.fn();
+    render(
+      <ResearchWorkspace
+        model={settingsModel}
+        onDiscoverModels={onDiscoverModels}
+      />
+    );
+    await waitFor(() => expect(onDiscoverModels).toHaveBeenCalledTimes(1));
+    await user.type(screen.getByLabelText("API Key"), "temporary-secret");
+    await user.clear(screen.getByLabelText("Base URL"));
+    await user.type(screen.getByLabelText("Base URL"), "https://other.example/v1");
+
+    expect(screen.queryByRole("option", { name: "gpt-4.1" })).toBeNull();
+    expect((screen.getByRole("button", { name: "刷新模型列表" }) as HTMLButtonElement).disabled)
+      .toBe(true);
+
+    await user.type(screen.getByLabelText("API Key"), "new-endpoint-secret");
+    await waitFor(() => {
+      expect(onDiscoverModels).toHaveBeenLastCalledWith({
+        provider: "openai",
+        baseUrl: "https://other.example/v1",
+        apiKey: "new-endpoint-secret"
+      });
+    });
+    expect((screen.getByRole("button", { name: "保存模型设置" }) as HTMLButtonElement).disabled)
+      .toBe(true);
+  });
+
+  it("notifies the platform when the theme preference changes", async () => {
+    const user = userEvent.setup();
+    const onThemePreferenceChange = vi.fn();
+    render(
+      <ResearchWorkspace
+        model={settingsModel}
+        onThemePreferenceChange={onThemePreferenceChange}
+      />
+    );
+
+    expect(onThemePreferenceChange).toHaveBeenCalledWith("system");
+    await user.click(screen.getByRole("radio", { name: "深色" }));
+    expect(onThemePreferenceChange).toHaveBeenLastCalledWith("dark");
+  });
+
   it("reacts to system color scheme changes", () => {
     let notify = (_matches: boolean) => {};
     const media = {

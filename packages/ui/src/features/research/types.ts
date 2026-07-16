@@ -1,3 +1,5 @@
+import type { ThemePreference } from "../theme/use-theme.js";
+
 export type ResearchSentimentView = "positive" | "neutral" | "negative" | "mixed";
 export type ResearchStageId = "identity" | "discovery" | "collection" | "cleaning" | "report";
 
@@ -90,6 +92,12 @@ export interface ResearchSettingsView {
   provider: "openai" | "ollama";
   baseUrl: string;
   model: string;
+  availableModels?: string[];
+  modelsProvider?: "openai" | "ollama";
+  modelsBaseUrl?: string;
+  modelsLoading?: boolean;
+  modelsError?: string;
+  hasApiKey?: boolean;
   apiKeyHint?: string;
   credentialsReady: boolean;
   supportsOllama: boolean;
@@ -100,6 +108,12 @@ export interface ResearchSettingsView {
     exportEnabled: boolean;
     status?: string;
   };
+}
+
+export interface ModelDiscoveryInput {
+  provider: "openai" | "ollama";
+  baseUrl: string;
+  apiKey?: string;
 }
 
 export interface ResearchSettingsInput {
@@ -152,6 +166,8 @@ export interface ResearchWorkspaceProps {
   onAskFollowUp?: (question: string) => void;
   onExcludeEvidence?: (evidenceId: string, reason: string) => void;
   onSaveSettings?: (settings: ResearchSettingsInput) => void;
+  onDiscoverModels?: (input: ModelDiscoveryInput) => void;
+  onThemePreferenceChange?: (preference: ThemePreference) => void;
   onImportData?: () => void;
   onExportData?: () => void;
 }

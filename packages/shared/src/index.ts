@@ -3,6 +3,7 @@ export * from "./privacy.js";
 export * from "./analysis.js";
 export * from "./rag.js";
 export * from "./contracts.js";
+export * from "./modelEndpoint.js";
 export * from "./projectPackage.js";
 export * from "./research/types.js";
 export * from "./research/contracts.js";

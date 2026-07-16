@@ -85,6 +85,7 @@ const server = await createServer({
   cacheDir: resolve(appDir, "../../node_modules/.vite/desktop-renderer"),
   configFile: false,
   root: rendererRoot,
+  publicDir: resolve(appDir, "../../packages/ui/public"),
   plugins: [react(), tailwindcss()],
   server: {
     host: "127.0.0.1",

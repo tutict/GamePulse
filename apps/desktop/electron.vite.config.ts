@@ -15,6 +15,7 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(appDir, "src/renderer"),
+    publicDir: resolve(appDir, "../../packages/ui/public"),
     cacheDir: resolve(appDir, "../../node_modules/.vite/desktop-renderer"),
     resolve: {
       alias: {

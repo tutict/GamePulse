@@ -24,7 +24,7 @@
     "test": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && node scripts/run-tests.mjs",
     "test:unit": "npm run test",
     "bench:sqlite-rag": "npm run build -w @gamepulse/shared && tsx apps/desktop/scripts/benchmark-sqlite-rag.ts",
-    "typecheck": "npm run typecheck -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run typecheck -w @gamepulse/shared && npm run typecheck -w @gamepulse/desktop && npm run typecheck -w @gamepulse/mobile && npm run typecheck -w @gamepulse/userscript"
+    "typecheck": "npm run build -w @gamepulse/ui && npm run build -w @gamepulse/shared && npm run typecheck -w @gamepulse/shared && npm run typecheck -w @gamepulse/desktop && npm run typecheck -w @gamepulse/mobile && npm run typecheck -w @gamepulse/userscript"
   },
   "engines": {
     "node": ">=22"

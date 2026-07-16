@@ -64,6 +64,7 @@ await build({
   cacheDir: resolve(appDir, "../../node_modules/.vite/desktop-renderer"),
   configFile: false,
   root: rendererRoot,
+  publicDir: resolve(appDir, "../../packages/ui/public"),
   plugins: [react(), tailwindcss()],
   build: {
     outDir: resolve(outDir, "renderer"),

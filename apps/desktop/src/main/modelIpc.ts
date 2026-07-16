@@ -1,6 +1,11 @@
 import { join } from "node:path";
 import { app, ipcMain, safeStorage } from "electron";
-import type { ModelMessage, ModelStreamEvent } from "@gamepulse/shared";
+import {
+  assertSecureModelBaseUrl,
+  normalizeModelBaseUrl,
+  type ModelMessage,
+  type ModelStreamEvent
+} from "@gamepulse/shared";
 import { ModelConfigStore, type ModelConfigInput } from "./modelConfigStore.js";
 import {
   ModelGatewayError,
@@ -14,6 +19,12 @@ interface ModelStartInput {
   messages: ModelMessage[];
   timeoutMs?: number;
   temperature?: number;
+}
+
+interface ModelListInput {
+  provider: "openai" | "ollama";
+  baseUrl: string;
+  apiKey?: string;
 }
 
 let configStore: ModelConfigStore | undefined;
@@ -47,6 +58,30 @@ export function registerModelHandlers(): void {
   ipcMain.handle("models:update-config", async (event, input: unknown) => {
     assertTrustedIpcSender(event);
     return requireConfigStore().update(validateConfigInput(input));
+  });
+  ipcMain.handle("models:list", async (event, input: unknown) => {
+    assertTrustedIpcSender(event);
+    const request = validateListInput(input);
+    if (request.provider === "ollama") {
+      const models = await new OllamaGateway({ baseUrl: request.baseUrl }).listModels();
+      return { models };
+    }
+
+    let apiKey = request.apiKey?.trim();
+    if (!apiKey) {
+      const stored = await requireConfigStore().getResolvedConfig();
+      const canReuseStoredKey = stored.provider === request.provider
+        && normalizeBaseUrl(stored.baseUrl) === normalizeBaseUrl(request.baseUrl);
+      apiKey = canReuseStoredKey ? stored.apiKey : undefined;
+    }
+    if (!apiKey) {
+      throw new Error("API key is required for this endpoint");
+    }
+    const models = await new OpenAICompatibleGateway({
+      baseUrl: request.baseUrl,
+      apiKey
+    }).listModels();
+    return { models };
   });
   ipcMain.handle("models:start", async (event, input: unknown) => {
     assertTrustedIpcSender(event);
@@ -122,7 +157,7 @@ function validateConfigInput(value: unknown): ModelConfigInput {
   }
   return {
     provider,
-    baseUrl: stringValue(value.baseUrl),
+    baseUrl: assertSecureModelBaseUrl(stringValue(value.baseUrl)),
     model: stringValue(value.model),
     apiKey: value.apiKey === undefined ? undefined : stringValue(value.apiKey)
   };
@@ -153,6 +188,25 @@ function validateStartInput(value: unknown): ModelStartInput {
   };
 }
 
+function validateListInput(value: unknown): ModelListInput {
+  if (!isRecord(value)) {
+    throw new Error("Model list request must be an object");
+  }
+  const provider = value.provider;
+  if (provider !== "openai" && provider !== "ollama") {
+    throw new Error("Model provider must be openai or ollama");
+  }
+  const baseUrl = stringValue(value.baseUrl);
+  if (!baseUrl) {
+    throw new Error("Model base URL is required");
+  }
+  return {
+    provider,
+    baseUrl: assertSecureModelBaseUrl(baseUrl),
+    apiKey: value.apiKey === undefined ? undefined : stringValue(value.apiKey)
+  };
+}
+
 function toErrorEvent(error: unknown): ModelStreamEvent {
   if (error instanceof ModelGatewayError) {
     return {
@@ -180,4 +234,8 @@ function numberValue(value: unknown): number | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeBaseUrl(value: string): string {
+  return normalizeModelBaseUrl(value);
 }

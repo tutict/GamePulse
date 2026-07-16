@@ -6,6 +6,7 @@ import {
   writeFileSync
 } from "node:fs";
 import { dirname } from "node:path";
+import { assertSecureModelBaseUrl } from "@gamepulse/shared";
 
 export type ModelProvider = "openai" | "ollama";
 
@@ -56,13 +57,20 @@ export class ModelConfigStore {
   ) {}
 
   async getStatus(): Promise<ModelConfigStatus> {
-    return toStatus(this.read());
+    const config = this.read();
+    try {
+      assertSecureModelBaseUrl(config.baseUrl);
+      return toStatus(config);
+    } catch {
+      return { ...toStatus(config), hasApiKey: false, apiKeyHint: undefined };
+    }
   }
 
   async getResolvedConfig(): Promise<ResolvedModelConfig> {
     const config = this.read();
     return {
       ...toStatus(config),
+      baseUrl: assertSecureModelBaseUrl(config.baseUrl),
       apiKey: config.encryptedApiKey
         ? this.encryption.decrypt(Buffer.from(config.encryptedApiKey, "base64"))
         : undefined
@@ -72,17 +80,24 @@ export class ModelConfigStore {
   async update(input: ModelConfigInput): Promise<ModelConfigStatus> {
     const current = this.read();
     const apiKey = input.apiKey?.trim();
+    const endpointUnchanged = current.provider === input.provider
+      && normalizeBaseUrl(current.baseUrl) === normalizeBaseUrl(input.baseUrl);
+    const preserveCurrentKey = apiKey === undefined && endpointUnchanged;
     const next: StoredModelConfig = {
       version: 1,
       provider: input.provider,
       baseUrl: input.baseUrl.trim(),
       model: input.model.trim(),
-      encryptedApiKey: apiKey === undefined
+      encryptedApiKey: input.provider !== "openai"
+        ? undefined
+        : preserveCurrentKey
         ? current.encryptedApiKey
         : apiKey
           ? Buffer.from(this.encryption.encrypt(apiKey)).toString("base64")
           : undefined,
-      apiKeyHint: apiKey === undefined
+      apiKeyHint: input.provider !== "openai"
+        ? undefined
+        : preserveCurrentKey
         ? current.apiKeyHint
         : apiKey
           ? apiKey.slice(-4)
@@ -122,6 +137,10 @@ export class ModelConfigStore {
       apiKeyHint: parsed.apiKeyHint
     };
   }
+}
+
+function normalizeBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/, "");
 }
 
 function toStatus(config: StoredModelConfig): ModelConfigStatus {

@@ -18,7 +18,7 @@ const navigation = [
 ];
 
 export function ResearchWorkspace(props: ResearchWorkspaceProps) {
-  const theme = useThemePreference();
+  const theme = useThemePreference(props.onThemePreferenceChange);
   const activeNavigationId =
     props.model.screen === "history"
       ? "history"
@@ -112,6 +112,7 @@ function renderScreen(
   return (
     <ResearchSettings
       onExportData={props.onExportData}
+      onDiscoverModels={props.onDiscoverModels}
       onImportData={props.onImportData}
       onSaveSettings={props.onSaveSettings}
       settings={model.settings}

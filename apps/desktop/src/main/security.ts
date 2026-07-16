@@ -1,6 +1,12 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { shell, type IpcMainInvokeEvent } from "electron";
 
 const devRendererUrl = process.env.ELECTRON_RENDERER_URL;
+const rendererEntryPath = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../renderer/index.html"
+);
 
 export function assertTrustedIpcSender(event: IpcMainInvokeEvent): void {
   const senderUrl = event.senderFrame?.url || event.sender.getURL();
@@ -17,10 +23,20 @@ export function isTrustedRendererUrl(rawUrl: string): boolean {
       return url.origin === new URL(devRendererUrl).origin;
     }
 
-    return url.protocol === "file:";
+    if (url.protocol !== "file:") {
+      return false;
+    }
+    url.hash = "";
+    url.search = "";
+    return comparablePath(fileURLToPath(url)) === comparablePath(rendererEntryPath);
   } catch {
     return false;
   }
+}
+
+function comparablePath(value: string): string {
+  const resolved = resolve(value);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
 export async function openExternalIfSafe(rawUrl: string): Promise<void> {
