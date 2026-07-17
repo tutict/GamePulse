@@ -34,6 +34,8 @@ interface DesktopResearchState {
   modelsError?: string;
   modelsProvider?: "openai" | "ollama";
   modelsBaseUrl?: string;
+  reportExportBusy: boolean;
+  reportExportMessage?: string;
 }
 
 type DesktopResearchAction = {
@@ -48,7 +50,8 @@ const initialState: DesktopResearchState = {
   busy: false,
   followUpBusy: false,
   availableModels: [],
-  modelsLoading: false
+  modelsLoading: false,
+  reportExportBusy: false
 };
 
 function reducer(
@@ -141,7 +144,12 @@ export function useDesktopResearch() {
   async function runOperation(operation: () => Promise<ResearchRecord>) {
     dispatch({
       type: "patch",
-      value: { activeView: "research", busy: true, error: undefined }
+      value: {
+        activeView: "research",
+        busy: true,
+        error: undefined,
+        reportExportMessage: undefined
+      }
     });
     try {
       const current = await operation();
@@ -173,7 +181,8 @@ export function useDesktopResearch() {
             current: undefined,
             error: undefined,
             followUpAnswer: undefined,
-            followUpBusy: false
+            followUpBusy: false,
+            reportExportMessage: undefined
           }
         : { activeView: view, error: undefined }
     });
@@ -183,7 +192,12 @@ export function useDesktopResearch() {
     cancelActiveModel();
     dispatch({
       type: "patch",
-      value: { current: undefined, followUpAnswer: undefined, followUpBusy: false }
+      value: {
+        current: undefined,
+        followUpAnswer: undefined,
+        followUpBusy: false,
+        reportExportMessage: undefined
+      }
     });
     await runOperation(() => window.gamepulse.research.start(request));
   }
@@ -203,7 +217,8 @@ export function useDesktopResearch() {
           busy: false,
           error: undefined,
           followUpAnswer: undefined,
-          followUpBusy: false
+          followUpBusy: false,
+          reportExportMessage: undefined
         }
       });
     } catch (error) {
@@ -386,6 +401,31 @@ export function useDesktopResearch() {
     }
   }
 
+  async function exportReport(format: "docx" | "pdf") {
+    if (!state.current) return;
+    dispatch({
+      type: "patch",
+      value: { reportExportBusy: true, reportExportMessage: "正在生成研究文档…" }
+    });
+    try {
+      const result = await window.gamepulse.research.exportDocument(state.current.id, format);
+      dispatch({
+        type: "patch",
+        value: {
+          reportExportBusy: false,
+          reportExportMessage: result.canceled
+            ? undefined
+            : `已导出 ${result.fileName}（${formatBytes(result.bytes)}）`
+        }
+      });
+    } catch (error) {
+      dispatch({
+        type: "patch",
+        value: { reportExportBusy: false, reportExportMessage: errorMessage(error) }
+      });
+    }
+  }
+
   return {
     model: buildWorkspaceModel(state),
     navigate,
@@ -400,7 +440,8 @@ export function useDesktopResearch() {
     discoverModels,
     saveSettings,
     importData,
-    exportData
+    exportData,
+    exportReport
   };
 }
 
@@ -457,6 +498,8 @@ function buildWorkspaceModel(state: DesktopResearchState): ResearchWorkspaceMode
       evidence: toEvidenceViews(state.current),
       followUpAnswer: state.followUpAnswer,
       followUpBusy: state.followUpBusy,
+      exportBusy: state.reportExportBusy,
+      exportMessage: state.reportExportMessage,
       busy: state.busy
     };
   }

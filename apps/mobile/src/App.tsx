@@ -20,6 +20,7 @@ export function App() {
       onExcludeEvidence={(evidenceId, reason) => void research.excludeEvidence(evidenceId, reason)}
       onDiscoverModels={(input) => void research.discoverModels(input)}
       onExportData={() => void research.exportData()}
+      onExportReport={(format) => void research.exportReport(format)}
       onImportData={() => void research.importData()}
       onNavigate={research.navigate}
       onOpenResearch={(researchId) => void research.openResearch(researchId)}

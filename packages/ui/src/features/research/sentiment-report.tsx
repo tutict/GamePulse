@@ -2,6 +2,9 @@ import {
   ArrowDown,
   ArrowUp,
   Check,
+  FileDown,
+  FileText,
+  FileType2,
   FlaskConical,
   Library,
   LoaderCircle,
@@ -12,7 +15,14 @@ import {
   Send,
   TriangleAlert
 } from "lucide-react";
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode
+} from "react";
 import { Badge } from "../../components/badge.js";
 import { Button } from "../../components/button.js";
 import { Textarea } from "../../components/textarea.js";
@@ -28,17 +38,49 @@ export function SentimentReport(props: {
   evidence: EvidenceView[];
   followUpAnswer?: string;
   followUpBusy?: boolean;
+  exportBusy?: boolean;
+  exportMessage?: string;
   busy?: boolean;
   onUpdateResearch?: () => void;
   onAskFollowUp?: (question: string) => void;
   onExcludeEvidence?: (evidenceId: string, reason: string) => void;
+  onExportReport?: (format: "docx" | "pdf") => void;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const evidenceTriggerRef = useRef<HTMLButtonElement>(null);
+  const exportTriggerRef = useRef<HTMLButtonElement>(null);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
   const citationLabels = new Map(
     props.evidence.map((item) => [item.id, item.citationLabel])
   );
+
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    queueMicrotask(() => {
+      exportMenuRef.current
+        ?.querySelector<HTMLButtonElement>('[role="menuitem"]')
+        ?.focus();
+    });
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (!exportMenuRef.current?.contains(event.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setExportMenuOpen(false);
+        queueMicrotask(() => exportTriggerRef.current?.focus());
+      }
+    };
+    document.addEventListener("pointerdown", closeOnPointerDown);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnPointerDown);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [exportMenuOpen]);
 
   function closeDrawer() {
     setDrawerOpen(false);
@@ -50,6 +92,36 @@ export function SentimentReport(props: {
     const normalized = question.trim();
     if (normalized) {
       props.onAskFollowUp?.(normalized);
+    }
+  }
+
+  function selectExport(format: "docx" | "pdf") {
+    setExportMenuOpen(false);
+    props.onExportReport?.(format);
+    queueMicrotask(() => exportTriggerRef.current?.focus());
+  }
+
+  function handleExportMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+      '[role="menuitem"]'
+    )];
+    if (!items.length) return;
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+    let nextIndex: number | undefined;
+    if (event.key === "ArrowDown") {
+      nextIndex = (currentIndex + 1) % items.length;
+    } else if (event.key === "ArrowUp") {
+      nextIndex = (currentIndex - 1 + items.length) % items.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = items.length - 1;
+    } else if (event.key === "Tab") {
+      setExportMenuOpen(false);
+    }
+    if (nextIndex !== undefined) {
+      event.preventDefault();
+      items[nextIndex]?.focus();
     }
   }
 
@@ -76,10 +148,52 @@ export function SentimentReport(props: {
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           {props.onUpdateResearch ? (
-            <Button className="h-11" disabled={props.busy} onClick={props.onUpdateResearch} type="button" variant="outline">
+            <Button className="h-11" disabled={props.busy || props.exportBusy} onClick={props.onUpdateResearch} type="button" variant="outline">
               <RefreshCw aria-hidden="true" />
               更新研究
             </Button>
+          ) : null}
+          {props.onExportReport ? (
+            <div className="relative" ref={exportMenuRef}>
+              <Button
+                aria-expanded={exportMenuOpen}
+                aria-haspopup="menu"
+                className="h-11 w-full"
+                disabled={props.exportBusy}
+                onClick={() => setExportMenuOpen((open) => !open)}
+                ref={exportTriggerRef}
+                type="button"
+                variant="outline"
+              >
+                {props.exportBusy ? (
+                  <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
+                ) : (
+                  <FileDown aria-hidden="true" />
+                )}
+                导出报告
+              </Button>
+              {exportMenuOpen ? (
+                <div
+                  aria-label="导出报告格式"
+                  className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-md border border-border bg-card p-1 shadow-lg"
+                  onKeyDown={handleExportMenuKeyDown}
+                  role="menu"
+                >
+                  <ExportOption
+                    icon={<FileText aria-hidden="true" />}
+                    label="Word 文档"
+                    meta=".docx"
+                    onClick={() => selectExport("docx")}
+                  />
+                  <ExportOption
+                    icon={<FileType2 aria-hidden="true" />}
+                    label="PDF 文档"
+                    meta=".pdf"
+                    onClick={() => selectExport("pdf")}
+                  />
+                </div>
+              ) : null}
+            </div>
           ) : null}
           <Button
             aria-controls="research-evidence-drawer"
@@ -94,6 +208,11 @@ export function SentimentReport(props: {
           </Button>
         </div>
       </header>
+      {props.exportMessage ? (
+        <p className="mb-0 mt-3 text-sm text-muted-foreground" role="status">
+          {props.exportMessage}
+        </p>
+      ) : null}
 
       <section className="-mx-4 bg-primary px-4 py-6 text-primary-foreground sm:mx-0 sm:mt-6 sm:rounded-lg sm:px-6" aria-labelledby="report-verdict-heading">
         <p className="m-0 text-sm font-semibold text-primary-foreground/70">总体判断</p>
@@ -323,4 +442,24 @@ function formatDateTime(value: string): string {
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(value));
+}
+
+function ExportOption(props: {
+  icon: ReactNode;
+  label: string;
+  meta: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="flex min-h-11 w-full items-center gap-3 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={props.onClick}
+      role="menuitem"
+      type="button"
+    >
+      <span className="text-muted-foreground [&_svg]:size-4">{props.icon}</span>
+      <span className="flex-1 font-semibold">{props.label}</span>
+      <span className="text-xs text-muted-foreground">{props.meta}</span>
+    </button>
+  );
 }

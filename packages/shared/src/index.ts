@@ -12,3 +12,5 @@ export * from "./research/fixtureCollector.js";
 export * from "./research/reportGenerator.js";
 export * from "./research/followUp.js";
 export * from "./research/orchestrator.js";
+export * from "./research/reportDocument.js";
+export * from "./research/reportDocx.js";

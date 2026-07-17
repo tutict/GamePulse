@@ -70,6 +70,9 @@ contextBridge.exposeInMainWorld("gamepulse", {
     regenerate(researchId: string) {
       return ipcRenderer.invoke("research:regenerate", researchId);
     },
+    exportDocument(researchId: string, format: "docx" | "pdf") {
+      return ipcRenderer.invoke("research:export-document", { researchId, format });
+    },
     onEvent(callback: (record: unknown) => void) {
       const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => callback(payload);
       ipcRenderer.on("research:event", listener);

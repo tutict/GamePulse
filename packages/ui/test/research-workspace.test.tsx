@@ -247,6 +247,38 @@ describe("ResearchWorkspace", () => {
     );
   });
 
+  it("offers Word and PDF exports from a completed report", async () => {
+    const user = userEvent.setup();
+    const onExportReport = vi.fn();
+    render(
+      <ResearchWorkspace
+        model={reportModel}
+        onExportReport={onExportReport}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "导出报告" }));
+    expect(screen.getByRole("menu", { name: "导出报告格式" })).not.toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("menuitem", { name: /Word 文档/ })
+    );
+    await user.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(
+      screen.getByRole("menuitem", { name: /PDF 文档/ })
+    );
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu", { name: "导出报告格式" })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "导出报告" }));
+
+    await user.click(screen.getByRole("button", { name: "导出报告" }));
+    await user.click(screen.getByRole("menuitem", { name: /PDF 文档/ }));
+    expect(onExportReport).toHaveBeenCalledWith("pdf");
+
+    await user.click(screen.getByRole("button", { name: "导出报告" }));
+    await user.click(screen.getByRole("menuitem", { name: /Word 文档/ }));
+    expect(onExportReport).toHaveBeenLastCalledWith("docx");
+  });
+
   it("closes the evidence drawer with Escape and restores trigger focus", async () => {
     const user = userEvent.setup();
     render(<ResearchWorkspace model={reportModel} />);

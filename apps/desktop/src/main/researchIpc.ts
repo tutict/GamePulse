@@ -1,6 +1,14 @@
-import { ipcMain, type WebContents } from "electron";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, extname, join } from "node:path";
+import { BrowserWindow, dialog, ipcMain, type WebContents } from "electron";
 import {
+  buildResearchDocument,
   DeterministicReportGenerator,
+  encodeResearchDocx,
+  renderResearchDocumentHtml,
+  researchDocumentFileName,
+  type ResearchDocumentFormat,
   type ResearchRecord
 } from "@gamepulse/shared";
 import { ChromiumResearchPageReader } from "./chromiumResearchPageReader.js";
@@ -66,6 +74,37 @@ export function registerResearchHandlers(): void {
     assertTrustedIpcSender(event);
     return requireService().regenerate(requiredString(researchId, "Research id", 200));
   });
+  ipcMain.handle("research:export-document", async (event, value: unknown) => {
+    assertTrustedIpcSender(event);
+    const input = validateRecord(value);
+    const researchId = requiredString(input.researchId, "Research id", 200);
+    const format = validateDocumentFormat(input.format);
+    const research = await requireService().get(researchId);
+    if (!research) {
+      throw new Error("Research was not found");
+    }
+    const document = buildResearchDocument(research);
+    const fileName = researchDocumentFileName(document, format);
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const save = parent
+      ? await dialog.showSaveDialog(parent, saveDialogOptions(fileName, format))
+      : await dialog.showSaveDialog(saveDialogOptions(fileName, format));
+    if (save.canceled || !save.filePath) {
+      return { canceled: true };
+    }
+    const filePath = ensureDocumentExtension(save.filePath, format);
+    const bytes = format === "docx"
+      ? encodeResearchDocx(document)
+      : await printResearchPdf(renderResearchDocumentHtml(document));
+    await writeFile(filePath, bytes);
+    return {
+      canceled: false,
+      filePath,
+      fileName: basename(filePath),
+      format,
+      bytes: bytes.byteLength
+    };
+  });
 }
 
 export function shutdownResearchServices(): void {
@@ -127,4 +166,68 @@ function requireService(): DesktopResearchService {
     throw new Error("Research services are not initialized");
   }
   return service;
+}
+
+function validateDocumentFormat(value: unknown): ResearchDocumentFormat {
+  if (value !== "docx" && value !== "pdf") {
+    throw new Error("Document format must be docx or pdf");
+  }
+  return value;
+}
+
+function saveDialogOptions(
+  fileName: string,
+  format: ResearchDocumentFormat
+): Electron.SaveDialogOptions {
+  return {
+    title: "导出研究报告",
+    defaultPath: fileName,
+    filters: [{
+      name: format === "docx" ? "Word 文档" : "PDF 文档",
+      extensions: [format]
+    }]
+  };
+}
+
+function ensureDocumentExtension(
+  filePath: string,
+  format: ResearchDocumentFormat
+): string {
+  return extname(filePath).toLowerCase() === `.${format}`
+    ? filePath
+    : `${filePath}.${format}`;
+}
+
+async function printResearchPdf(html: string): Promise<Uint8Array> {
+  let directory: string | undefined;
+  let preview: BrowserWindow | undefined;
+  try {
+    directory = await mkdtemp(join(tmpdir(), "gamepulse-report-"));
+    const htmlPath = join(directory, "report.html");
+    await writeFile(htmlPath, html, "utf8");
+    preview = new BrowserWindow({
+      show: false,
+      backgroundColor: "#ffffff",
+      webPreferences: {
+        contextIsolation: true,
+        javascript: false,
+        nodeIntegration: false,
+        sandbox: true
+      }
+    });
+    preview.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    await preview.loadFile(htmlPath);
+    return await preview.webContents.printToPDF({
+      printBackground: true,
+      preferCSSPageSize: true,
+      pageSize: "A4"
+    });
+  } finally {
+    if (preview && !preview.isDestroyed()) {
+      preview.destroy();
+    }
+    if (directory) {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
 }

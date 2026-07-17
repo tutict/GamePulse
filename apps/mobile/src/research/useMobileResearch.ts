@@ -19,6 +19,7 @@ import {
   exportAndShareProject,
   pickAndImportFile
 } from "../files/projectFiles.js";
+import { exportAndShareResearchDocument } from "../files/researchDocumentFiles.js";
 import { RemoteModelGateway } from "../models/remoteModelGateway.js";
 import {
   getRemoteModelStatus,
@@ -51,6 +52,8 @@ interface MobileResearchState {
   modelsError?: string;
   modelsProvider?: "openai" | "ollama";
   modelsBaseUrl?: string;
+  reportExportBusy: boolean;
+  reportExportMessage?: string;
 }
 
 type MobileResearchAction = {
@@ -65,7 +68,8 @@ const initialState: MobileResearchState = {
   busy: true,
   followUpBusy: false,
   availableModels: [],
-  modelsLoading: false
+  modelsLoading: false,
+  reportExportBusy: false
 };
 
 function reducer(state: MobileResearchState, action: MobileResearchAction): MobileResearchState {
@@ -146,7 +150,12 @@ export function useMobileResearch() {
   ) {
     dispatch({
       type: "patch",
-      value: { activeView: "research", busy: true, error: undefined }
+      value: {
+        activeView: "research",
+        busy: true,
+        error: undefined,
+        reportExportMessage: undefined
+      }
     });
     try {
       const current = await operation(requireController(), handleProgress);
@@ -174,7 +183,8 @@ export function useMobileResearch() {
             current: undefined,
             error: undefined,
             followUpAnswer: undefined,
-            followUpBusy: false
+            followUpBusy: false,
+            reportExportMessage: undefined
           }
         : { activeView: view, error: undefined }
     });
@@ -184,7 +194,12 @@ export function useMobileResearch() {
     cancelActiveModel();
     dispatch({
       type: "patch",
-      value: { current: undefined, followUpAnswer: undefined, followUpBusy: false }
+      value: {
+        current: undefined,
+        followUpAnswer: undefined,
+        followUpBusy: false,
+        reportExportMessage: undefined
+      }
     });
     await runOperation((controller, onProgress) => controller.start(request, onProgress));
   }
@@ -204,7 +219,8 @@ export function useMobileResearch() {
           busy: false,
           error: undefined,
           followUpAnswer: undefined,
-          followUpBusy: false
+          followUpBusy: false,
+          reportExportMessage: undefined
         }
       });
     } catch (error) {
@@ -416,6 +432,33 @@ export function useMobileResearch() {
     }
   }
 
+  async function exportReport(format: "docx" | "pdf") {
+    if (!state.current) {
+      return;
+    }
+    dispatch({
+      type: "patch",
+      value: { reportExportBusy: true, reportExportMessage: "正在生成研究文档…" }
+    });
+    try {
+      const result = await exportAndShareResearchDocument(state.current, format);
+      dispatch({
+        type: "patch",
+        value: {
+          reportExportBusy: false,
+          reportExportMessage: result.action === "print"
+            ? "已打开系统 PDF 保存面板。"
+            : `已生成 ${result.fileName}`
+        }
+      });
+    } catch (error) {
+      dispatch({
+        type: "patch",
+        value: { reportExportBusy: false, reportExportMessage: errorMessage(error) }
+      });
+    }
+  }
+
   return {
     model: buildWorkspaceModel(state),
     navigate,
@@ -430,7 +473,8 @@ export function useMobileResearch() {
     discoverModels,
     saveSettings,
     importData,
-    exportData
+    exportData,
+    exportReport
   };
 }
 
@@ -486,6 +530,8 @@ function buildWorkspaceModel(state: MobileResearchState): ResearchWorkspaceModel
       evidence: toEvidenceViews(state.current),
       followUpAnswer: state.followUpAnswer,
       followUpBusy: state.followUpBusy,
+      exportBusy: state.reportExportBusy,
+      exportMessage: state.reportExportMessage,
       busy: state.busy
     };
   }

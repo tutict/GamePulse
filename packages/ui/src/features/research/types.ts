@@ -149,6 +149,8 @@ export type ResearchWorkspaceModel =
       evidence: EvidenceView[];
       followUpAnswer?: string;
       followUpBusy?: boolean;
+      exportBusy?: boolean;
+      exportMessage?: string;
       busy?: boolean;
     }
   | { screen: "history"; items: ResearchHistoryItem[] }
@@ -165,6 +167,7 @@ export interface ResearchWorkspaceProps {
   onRegenerateReport?: () => void;
   onAskFollowUp?: (question: string) => void;
   onExcludeEvidence?: (evidenceId: string, reason: string) => void;
+  onExportReport?: (format: "docx" | "pdf") => void;
   onSaveSettings?: (settings: ResearchSettingsInput) => void;
   onDiscoverModels?: (input: ModelDiscoveryInput) => void;
   onThemePreferenceChange?: (preference: ThemePreference) => void;

@@ -93,8 +93,11 @@ function renderScreen(
         evidence={model.evidence}
         followUpAnswer={model.followUpAnswer}
         followUpBusy={model.followUpBusy}
+        exportBusy={model.exportBusy}
+        exportMessage={model.exportMessage}
         onAskFollowUp={props.onAskFollowUp}
         onExcludeEvidence={props.onExcludeEvidence}
+        onExportReport={props.onExportReport}
         onUpdateResearch={props.onUpdateResearch}
         report={model.report}
       />

@@ -93,6 +93,16 @@ export type ProjectPackageImportResult =
       fileName: string;
     } & ProjectMergeResult);
 
+export type ResearchDocumentExportResult =
+  | { canceled: true }
+  | {
+      canceled: false;
+      filePath: string;
+      fileName: string;
+      format: "docx" | "pdf";
+      bytes: number;
+    };
+
 export interface GamePulseBridge {
   platform: string;
   versions: {
@@ -133,6 +143,10 @@ export interface GamePulseBridge {
       reason: string
     ): Promise<ResearchRecord>;
     regenerate(researchId: string): Promise<ResearchRecord>;
+    exportDocument(
+      researchId: string,
+      format: "docx" | "pdf"
+    ): Promise<ResearchDocumentExportResult>;
     onEvent(callback: (record: ResearchRecord) => void): () => void;
   };  models: {
     getStatus(): Promise<ModelConfigStatus>;
