@@ -55,7 +55,78 @@ export function runLocalStoreContract(name, createStore) {
       await source.close();
       await destination.close();
     });
+
+    it("rejects mismatched comment project identity without mutation", async () => {
+      const destination = await createStore();
+      const invalid = sampleSnapshot();
+      invalid.comments[0].projectId = "contradictory-project";
+
+      await expectIdentityRejectionWithoutMutation(
+        destination,
+        invalid,
+        "Project snapshot comment projectId mismatch: contract-comment"
+      );
+    });
+
+    it("rejects mismatched report project identity without mutation", async () => {
+      const destination = await createStore();
+      const invalid = sampleSnapshot();
+      invalid.reports.push(sampleReport("contradictory-project"));
+
+      await expectIdentityRejectionWithoutMutation(
+        destination,
+        invalid,
+        "Project snapshot report projectId mismatch: contract-report"
+      );
+    });
+
+    it("rejects dangling label identity without mutation", async () => {
+      const destination = await createStore();
+      const invalid = sampleSnapshot();
+      invalid.labels.push(sampleLabel("missing-comment"));
+
+      await expectIdentityRejectionWithoutMutation(
+        destination,
+        invalid,
+        "Project snapshot label commentId is missing: missing-comment"
+      );
+    });
   });
+}
+
+async function expectIdentityRejectionWithoutMutation(destination, invalid, error) {
+  try {
+    await expect(destination.importProject(invalid)).rejects.toThrow(error);
+    expect(await destination.listProjects()).toEqual([]);
+    expect(await destination.getStats()).toMatchObject({
+      projectCount: 0,
+      commentCount: 0
+    });
+  } finally {
+    await destination.close();
+  }
+}
+
+function sampleSnapshot() {
+  const project = sampleProject();
+  return {
+    formatVersion: 1,
+    exportedAt: "2026-07-10T00:00:00.000Z",
+    project,
+    comments: [
+      {
+        id: "contract-comment",
+        projectId: project.id,
+        platform: "steam",
+        body: "Login crash after update",
+        bodyNorm: "login crash after update",
+        contentHash: "contract-comment-hash",
+        collectedAt: "2026-07-10T00:00:00.000Z"
+      }
+    ],
+    labels: [],
+    reports: []
+  };
 }
 
 function sampleProject() {
@@ -71,6 +142,43 @@ function sampleProject() {
     entityAliases: [],
     createdAt: now,
     updatedAt: now
+  };
+}
+
+function sampleLabel(commentId) {
+  return {
+    commentId,
+    sentiment: "negative",
+    topic: "crash",
+    intent: "bug_report",
+    severity: 5,
+    isBug: true,
+    isChurnRisk: false,
+    entities: [],
+    confidence: 1,
+    rationale: "Crash report",
+    model: "test-model"
+  };
+}
+
+function sampleReport(projectId) {
+  return {
+    id: "contract-report",
+    runId: "contract-run",
+    projectId,
+    title: "Contract report",
+    markdown: "# Contract report",
+    summary: {
+      totalComments: 1,
+      negativeRate: 1,
+      bugRate: 1,
+      churnRiskRate: 0,
+      riskIndex: 5,
+      topComplaints: [],
+      topBugs: [],
+      entityHeat: []
+    },
+    createdAt: "2026-07-10T00:00:00.000Z"
   };
 }
 

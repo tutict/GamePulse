@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import {
+  assertProjectSnapshotIdentity,
   buildFts5Query,
   buildRagContentHash,
   buildSearchTerms,
@@ -402,6 +403,7 @@ export class SqliteLocalStore implements LocalStore {
   }
 
   async importProject(snapshot: ProjectSnapshot): Promise<ProjectMergeResult> {
+    assertProjectSnapshotIdentity(snapshot);
     const database = this.requireDatabase();
     let inserted = 0;
     const merge = database.transaction(() => {

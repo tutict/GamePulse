@@ -4,6 +4,7 @@ import {
   type SQLiteDBConnection
 } from "@capacitor-community/sqlite";
 import {
+  assertProjectSnapshotIdentity,
   buildFts5Query,
   buildRagContentHash,
   buildSearchTerms,
@@ -422,6 +423,7 @@ export class CapacitorSqliteLocalStore implements LocalStore {
   }
 
   async importProject(snapshot: ProjectSnapshot): Promise<ProjectMergeResult> {
+    assertProjectSnapshotIdentity(snapshot);
     this.requireInitialized();
     let inserted = 0;
     await this.driver.transaction(async () => {

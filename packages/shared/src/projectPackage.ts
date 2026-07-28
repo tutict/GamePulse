@@ -1,4 +1,5 @@
 import { sha256 as sha256Hash } from "@noble/hashes/sha2.js";
+import { assertProjectSnapshotIdentity } from './projectSnapshotIdentity.js';
 import {
   strFromU8,
   strToU8,
@@ -65,6 +66,7 @@ export class GamePulseProjectPackageCodec implements ProjectPackageCodec {
     if (snapshot.formatVersion !== 1) {
       throw new Error(`Unsupported project snapshot version: ${snapshot.formatVersion}`);
     }
+    assertProjectSnapshotIdentity(snapshot);
 
     const payloads: Record<string, Uint8Array> = {
       [metadataPath]: jsonBytes({
@@ -123,7 +125,7 @@ export class GamePulseProjectPackageCodec implements ProjectPackageCodec {
       throw new Error(`Unsupported project snapshot version: ${metadata.formatVersion}`);
     }
 
-    return {
+    const snapshot: ProjectSnapshot = {
       formatVersion: 1,
       exportedAt: metadata.exportedAt,
       project: cleanProject(parseJson<Project>(requiredFile(files, projectPath))),
@@ -131,6 +133,8 @@ export class GamePulseProjectPackageCodec implements ProjectPackageCodec {
       labels: parseNdjson<AnalysisLabel>(requiredFile(files, labelsPath)).map(cleanObject),
       reports: parseNdjson<Report>(requiredFile(files, reportsPath)).map(cleanObject)
     };
+    assertProjectSnapshotIdentity(snapshot);
+    return snapshot;
   }
 
   async decodeStream(chunks: AsyncIterable<Uint8Array>): Promise<ProjectSnapshot> {
@@ -233,7 +237,7 @@ export class GamePulseProjectPackageCodec implements ProjectPackageCodec {
       throw new Error(`Project package is missing: ${projectPath}`);
     }
 
-    return {
+    const snapshot: ProjectSnapshot = {
       formatVersion: 1,
       exportedAt: metadata.exportedAt,
       project,
@@ -241,6 +245,8 @@ export class GamePulseProjectPackageCodec implements ProjectPackageCodec {
       labels,
       reports
     };
+    assertProjectSnapshotIdentity(snapshot);
+    return snapshot;
   }
 }
 

@@ -5,6 +5,7 @@ export * from "./rag.js";
 export * from "./contracts.js";
 export * from "./modelEndpoint.js";
 export * from "./projectPackage.js";
+export * from './projectSnapshotIdentity.js';
 export * from "./research/types.js";
 export * from "./research/contracts.js";
 export * from "./research/memoryRepository.js";

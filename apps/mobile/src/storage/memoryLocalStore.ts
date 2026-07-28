@@ -1,4 +1,5 @@
 import {
+  assertProjectSnapshotIdentity,
   buildRagContentHash,
   buildSearchTerms,
   hashAuthor,
@@ -132,6 +133,7 @@ export class MemoryLocalStore implements LocalStore {
   }
 
   async importProject(snapshot: ProjectSnapshot): Promise<ProjectMergeResult> {
+    assertProjectSnapshotIdentity(snapshot);
     await this.saveProject(snapshot.project);
     const existing = new Set(this.projectComments(snapshot.project.id).map((item) => item.contentHash));
     let inserted = 0;
