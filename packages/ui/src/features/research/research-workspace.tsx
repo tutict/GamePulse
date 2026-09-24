@@ -1,3 +1,4 @@
+import { useEffect, useRef, type RefObject } from "react";
 import { FileText, History, Radar, Settings } from "lucide-react";
 import { AppShell } from "../../components/app-shell.js";
 import { ResearchHistory } from "./research-history.js";
@@ -19,6 +20,14 @@ const navigation = [
 
 export function ResearchWorkspace(props: ResearchWorkspaceProps) {
   const theme = useThemePreference(props.onThemePreferenceChange);
+  const previousScreen = useRef(props.model.screen);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (previousScreen.current === props.model.screen) return;
+    previousScreen.current = props.model.screen;
+    headingRef.current?.focus();
+  }, [props.model.screen]);
   const activeNavigationId =
     props.model.screen === "history"
       ? "history"
@@ -45,7 +54,7 @@ export function ResearchWorkspace(props: ResearchWorkspaceProps) {
       subtitle="游戏风评研究"
       title="GamePulse 游脉"
     >
-      {renderScreen(props, theme.preference, theme.setPreference)}
+      {renderScreen(props, theme.preference, theme.setPreference, headingRef)}
     </AppShell>
   );
 }
@@ -53,12 +62,14 @@ export function ResearchWorkspace(props: ResearchWorkspaceProps) {
 function renderScreen(
   props: ResearchWorkspaceProps,
   themePreference: ThemePreference,
-  onThemePreferenceChange: (theme: ThemePreference) => void
+  onThemePreferenceChange: (theme: ThemePreference) => void,
+  headingRef: RefObject<HTMLHeadingElement | null>
 ) {
   const { model } = props;
   if (model.screen === "start") {
     return (
       <ResearchStart
+        headingRef={headingRef}
         busy={model.busy}
         credentialsReady={model.credentialsReady}
         error={model.error}
@@ -72,6 +83,7 @@ function renderScreen(
   if (model.screen === "progress") {
     return (
       <ResearchProgress
+        headingRef={headingRef}
         canCancel={model.canCancel}
         canRegenerate={model.canRegenerate}
         error={model.error}
@@ -89,6 +101,7 @@ function renderScreen(
   if (model.screen === "report") {
     return (
       <SentimentReport
+        headingRef={headingRef}
         busy={model.busy}
         evidence={model.evidence}
         followUpAnswer={model.followUpAnswer}
@@ -106,6 +119,7 @@ function renderScreen(
   if (model.screen === "history") {
     return (
       <ResearchHistory
+        headingRef={headingRef}
         items={model.items}
         onOpenResearch={props.onOpenResearch}
         onStartResearch={() => props.onNavigate?.("research")}
@@ -114,6 +128,7 @@ function renderScreen(
   }
   return (
     <ResearchSettings
+      headingRef={headingRef}
       onExportData={props.onExportData}
       onDiscoverModels={props.onDiscoverModels}
       onImportData={props.onImportData}

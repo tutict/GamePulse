@@ -4,6 +4,8 @@ export * from "./components/badge.js";
 export * from "./components/button.js";
 export * from "./components/card.js";
 export * from "./components/input.js";
+export * from "./components/page-heading.js";
+export * from "./components/status-banner.js";
 export * from "./components/textarea.js";
 export * from "./features/research/types.js";
 export * from "./features/research/research-start.js";

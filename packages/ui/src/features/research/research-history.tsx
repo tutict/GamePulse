@@ -1,9 +1,12 @@
+import type { RefObject } from "react";
 import { ArrowRight, Clock3, FileText, TrendingDown, TrendingUp } from "lucide-react";
 import { Badge } from "../../components/badge.js";
 import { Button } from "../../components/button.js";
+import { PageHeading } from "../../components/page-heading.js";
 import type { ResearchHistoryItem } from "./types.js";
 
 export function ResearchHistory(props: {
+  headingRef: RefObject<HTMLHeadingElement | null>;
   items: ResearchHistoryItem[];
   onOpenResearch?: (researchId: string) => void;
   onStartResearch?: () => void;
@@ -11,7 +14,7 @@ export function ResearchHistory(props: {
   return (
     <div className="mx-auto w-full max-w-4xl">
       <header className="border-b border-border pb-6">
-        <h2 className="m-0 text-2xl font-semibold sm:text-3xl">历史报告</h2>
+        <PageHeading ref={props.headingRef} className="m-0">历史报告</PageHeading>
         <p className="mb-0 mt-2 text-sm text-muted-foreground">{props.items.length} 项本地研究</p>
       </header>
 
@@ -39,9 +42,9 @@ export function ResearchHistory(props: {
                   </Badge>
                 </div>
                 {item.focus ? (
-                  <p className="mb-0 mt-2 truncate text-sm text-muted-foreground">关注：{item.focus}</p>
+                  <p className="mb-0 mt-2 break-words text-sm text-muted-foreground">关注：{item.focus}</p>
                 ) : null}
-                <p className="mb-0 mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+                <p className="mb-0 mt-2 max-w-prose text-base leading-7 text-muted-foreground">
                   {item.verdict ?? "该研究尚未生成报告。"}
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">

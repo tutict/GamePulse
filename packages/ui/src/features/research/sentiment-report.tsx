@@ -21,10 +21,12 @@ import {
   useState,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode
+  type ReactNode,
+  type RefObject
 } from "react";
 import { Badge } from "../../components/badge.js";
 import { Button } from "../../components/button.js";
+import { PageHeading } from "../../components/page-heading.js";
 import { Textarea } from "../../components/textarea.js";
 import { EvidenceDrawer } from "./evidence-drawer.js";
 import type {
@@ -34,6 +36,7 @@ import type {
 } from "./types.js";
 
 export function SentimentReport(props: {
+  headingRef: RefObject<HTMLHeadingElement | null>;
   report: SentimentReportView;
   evidence: EvidenceView[];
   followUpAnswer?: string;
@@ -138,10 +141,10 @@ export function SentimentReport(props: {
               </Badge>
             ) : null}
           </div>
-          <h2 className="mt-3 break-words text-2xl font-semibold leading-tight sm:text-3xl">
+          <PageHeading ref={props.headingRef} className="mt-3">
             {props.report.gameName}
-          </h2>
-          <p className="mb-0 mt-2 text-sm text-muted-foreground">
+          </PageHeading>
+          <p className="mb-0 mt-2 break-words text-sm text-muted-foreground">
             {formatDateTime(props.report.updatedAt)}
             {props.report.focus ? ` · 关注：${props.report.focus}` : ""}
           </p>
@@ -219,7 +222,7 @@ export function SentimentReport(props: {
         <h3 className="mb-0 mt-2 max-w-4xl text-balance text-xl font-semibold leading-8 sm:text-2xl" id="report-verdict-heading">
           {props.report.verdict}
         </h3>
-        <p className="mb-0 mt-3 max-w-3xl text-pretty text-sm leading-6 text-primary-foreground/80">
+        <p className="mb-0 mt-3 max-w-prose text-pretty text-base leading-7 text-primary-foreground/80">
           {props.report.summary}
         </p>
       </section>
@@ -255,6 +258,22 @@ export function SentimentReport(props: {
         </div>
       </section>
 
+      <section className="grid gap-6 border-b border-border py-7 lg:grid-cols-[minmax(0,1fr)_18rem]" aria-labelledby="coverage-heading">
+        <div>
+          <h3 className="m-0 text-lg font-semibold" id="coverage-heading">
+            研究覆盖
+          </h3>
+          <p className="mb-0 mt-3 max-w-prose text-base leading-7 text-muted-foreground">
+            本报告描述本次收集到的非随机公开样本，不代表全部玩家。失败或排除的来源不会参与结论。
+          </p>
+        </div>
+        <dl className="m-0 grid grid-cols-3 gap-3 lg:grid-cols-1">
+          <CoverageMetric label="已覆盖" value={props.report.coverage.coveredSources} />
+          <CoverageMetric label="失败" value={props.report.coverage.failedSources} />
+          <CoverageMetric label="已排除" value={props.report.coverage.excludedSources} />
+        </dl>
+      </section>
+
       <section aria-labelledby="topics-heading" className="border-b border-border py-7">
         <div className="flex items-baseline justify-between gap-3">
           <h3 className="m-0 text-lg font-semibold" id="topics-heading">
@@ -276,7 +295,7 @@ export function SentimentReport(props: {
                     <h4 className="m-0 break-words text-base font-semibold">{topic.label}</h4>
                     <SentimentBadge sentiment={topic.sentiment} />
                   </div>
-                  <p className="mb-0 mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+                  <p className="mb-0 mt-2 max-w-prose text-base leading-7 text-muted-foreground">
                     {topic.summary}
                   </p>
                 </div>
@@ -300,21 +319,7 @@ export function SentimentReport(props: {
         <FindingSection icon={<Scale aria-hidden="true" />} items={props.report.controversies} title="主要争议" />
       </div>
 
-      <section className="grid gap-6 border-b border-border py-7 lg:grid-cols-[minmax(0,1fr)_18rem]" aria-labelledby="coverage-heading">
-        <div>
-          <h3 className="m-0 text-lg font-semibold" id="coverage-heading">
-            研究覆盖
-          </h3>
-          <p className="mb-0 mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-            本报告描述本次收集到的非随机公开样本，不代表全部玩家。失败或排除的来源不会参与结论。
-          </p>
-        </div>
-        <dl className="m-0 grid grid-cols-3 gap-3 lg:grid-cols-1">
-          <CoverageMetric label="已覆盖" value={props.report.coverage.coveredSources} />
-          <CoverageMetric label="失败" value={props.report.coverage.failedSources} />
-          <CoverageMetric label="已排除" value={props.report.coverage.excludedSources} />
-        </dl>
-      </section>
+
 
       <section aria-labelledby="follow-up-heading" className="py-7">
         <div className="flex items-center gap-3">
@@ -347,8 +352,8 @@ export function SentimentReport(props: {
           </div>
         </form>
         {props.followUpAnswer ? (
-          <div className="mt-5 rounded-md border border-border bg-card p-5" aria-live="polite">
-            <p className="m-0 whitespace-pre-wrap text-sm leading-7">{props.followUpAnswer}</p>
+          <div className="mt-5 rounded-md border border-border bg-card p-5" aria-live="polite" aria-atomic="true">
+            <p className="m-0 max-w-prose whitespace-pre-wrap text-base leading-7">{props.followUpAnswer}</p>
           </div>
         ) : null}
       </section>
@@ -415,7 +420,7 @@ function FindingSection(props: { title: string; items: string[]; icon: ReactNode
       {props.items.length === 0 ? (
         <p className="mb-0 mt-3 text-sm text-muted-foreground">当前样本中暂无明确结论。</p>
       ) : (
-        <ul className="mb-0 mt-3 grid gap-3 pl-5 text-sm leading-6">
+        <ul className="mb-0 mt-3 grid max-w-prose gap-3 pl-5 text-base leading-7">
           {props.items.map((item) => (
             <li className="pl-1" key={item}>{item}</li>
           ))}

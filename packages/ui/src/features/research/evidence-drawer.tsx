@@ -153,7 +153,7 @@ export function EvidenceDrawer(props: {
                   <h3 className="mb-0 mt-3 break-words text-sm font-semibold leading-6">
                     {item.sourceTitle}
                   </h3>
-                  <blockquote className="mx-0 mb-0 mt-3 whitespace-pre-wrap text-sm leading-7 text-foreground">
+                  <blockquote className="mx-0 mb-0 mt-3 max-w-prose whitespace-pre-wrap text-base leading-7 text-foreground">
                     {item.body}
                   </blockquote>
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">

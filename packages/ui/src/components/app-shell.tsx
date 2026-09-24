@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { cn } from "../lib/utils.js";
 
 export interface AppShellNavigationItem {
@@ -17,6 +17,7 @@ export function AppShell(props: {
   onNavigate: (id: string) => void;
   children: ReactNode;
 }) {
+  const mainContentId = `main-content-${useId().replace(/:/g, "")}`;
   const navigationItems = props.navigation.map((item) => {
     const active = props.activeNavigationId === item.id;
     return (
@@ -41,6 +42,12 @@ export function AppShell(props: {
 
   return (
     <div className="min-h-dvh bg-background text-foreground lg:pl-64">
+      <a
+        className="sr-only z-50 rounded-md bg-primary px-4 py-3 font-semibold text-primary-foreground focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+        href={`#${mainContentId}`}
+      >
+        跳到主要内容
+      </a>
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-border bg-card lg:flex">
         <div className="flex min-h-20 items-center gap-3 border-b border-border px-5 py-4">
           <div className="shrink-0">{props.brand}</div>
@@ -51,7 +58,7 @@ export function AppShell(props: {
             ) : null}
           </div>
         </div>
-        <nav aria-label="Primary" className="flex flex-1 flex-col gap-1 px-3 py-4">
+        <nav aria-label="主导航" className="flex flex-1 flex-col gap-1 px-3 py-4">
           {navigationItems}
         </nav>
         {props.actions ? (
@@ -67,19 +74,23 @@ export function AppShell(props: {
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-base font-semibold">{props.title}</h1>
             {props.subtitle ? (
-              <p className="mt-0.5 truncate text-xs text-primary-foreground/60">{props.subtitle}</p>
+              <p className="mt-0.5 truncate text-xs text-primary-foreground/80">{props.subtitle}</p>
             ) : null}
           </div>
           {props.actions ? <div className="shrink-0">{props.actions}</div> : null}
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-5xl px-4 pb-28 pt-5 md:px-8 md:pb-10 md:pt-8 lg:px-10">
+      <main
+        id={mainContentId}
+        className="mx-auto w-full max-w-5xl px-4 pb-28 pt-5 md:px-8 md:pb-10 md:pt-8 lg:px-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        tabIndex={-1}
+      >
         {props.children}
       </main>
 
       <nav
-        aria-label="Primary"
+        aria-label="主导航"
         className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden"
       >
         <div

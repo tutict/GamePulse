@@ -13,9 +13,10 @@ import {
   Sun,
   Upload
 } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { Badge } from "../../components/badge.js";
 import { Button } from "../../components/button.js";
+import { PageHeading } from "../../components/page-heading.js";
 import { Input } from "../../components/input.js";
 import type {
   ModelDiscoveryInput,
@@ -25,6 +26,7 @@ import type {
 import type { ThemePreference } from "../theme/use-theme.js";
 
 export function ResearchSettings(props: {
+  headingRef: RefObject<HTMLHeadingElement | null>;
   settings: ResearchSettingsView;
   onSaveSettings?: (settings: ResearchSettingsInput) => void;
   onDiscoverModels?: (input: ModelDiscoveryInput) => void;
@@ -142,7 +144,7 @@ export function ResearchSettings(props: {
     <div className="mx-auto w-full max-w-3xl">
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-6">
         <div>
-          <h2 className="m-0 text-2xl font-semibold sm:text-3xl">设置</h2>
+          <PageHeading ref={props.headingRef} className="m-0">设置</PageHeading>
           <p className="mb-0 mt-2 text-sm text-muted-foreground">
             {props.settings.platform === "windows" ? "Windows" : "Android"} · 本机安全存储
           </p>

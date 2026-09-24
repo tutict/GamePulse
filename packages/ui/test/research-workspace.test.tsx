@@ -204,7 +204,7 @@ describe("ResearchWorkspace", () => {
 
   it("sizes the mobile navigation from the three actual destinations", () => {
     render(<ResearchWorkspace model={startModel} />);
-    const navigation = screen.getAllByRole("navigation", { name: "Primary" }).at(-1)!;
+    const navigation = screen.getAllByRole("navigation", { name: "主导航" }).at(-1)!;
     const grid = navigation.firstElementChild as HTMLElement;
 
     expect(grid.style.gridTemplateColumns).toBe("repeat(3, minmax(0, 1fr))");
@@ -290,5 +290,96 @@ describe("ResearchWorkspace", () => {
 
     expect(screen.queryByRole("dialog", { name: "来源与证据" })).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("offers a first-tab skip link to the main content", async () => {
+    const user = userEvent.setup();
+    render(<ResearchWorkspace model={startModel} />);
+    const skipLink = screen.getByRole("link", { name: "跳到主要内容" });
+
+    await user.tab();
+    expect(document.activeElement).toBe(skipLink);
+    const main = screen.getByRole("main");
+    expect(skipLink.getAttribute("href")).toBe(`#${main.id}`);
+    expect(main.getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("moves focus to the new page heading when the workspace screen changes", () => {
+    const { rerender } = render(<ResearchWorkspace model={startModel} />);
+    const progressModel: ResearchWorkspaceModel = {
+      screen: "progress",
+      gameName: "幻兽帕鲁",
+      stage: {
+        id: "collection",
+        message: "正在读取公开评论。",
+        status: "running",
+        evidenceCount: 3
+      },
+      sources: [],
+      canCancel: true
+    };
+
+    rerender(<ResearchWorkspace model={progressModel} />);
+
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { level: 2, name: "幻兽帕鲁" })
+    );
+  });
+
+  it("keeps the primary mobile action at least 44px tall", () => {
+    render(<ResearchWorkspace model={startModel} />);
+
+    expect(screen.getByRole("button", { name: "开始研究" }).className).toContain("min-h-11");
+  });
+
+  it("shows sample boundaries immediately after the report overview", () => {
+    const { container } = render(<ResearchWorkspace model={reportModel} />);
+    const headings = [...container.querySelectorAll("main h3")].map((heading) =>
+      heading.textContent?.trim()
+    );
+    const overviewIndex = headings.indexOf("样本口碑概览");
+    const coverageIndex = headings.indexOf("研究覆盖");
+    const topicsIndex = headings.indexOf("主要关注主题");
+
+    expect(coverageIndex).toBe(overviewIndex + 1);
+    expect(topicsIndex).toBeGreaterThan(coverageIndex);
+  });
+
+  it("labels source coverage states with visible text", () => {
+    render(
+      <ResearchWorkspace
+        model={{
+          screen: "progress",
+          gameName: "幻兽帕鲁",
+          stage: {
+            id: "collection",
+            message: "正在读取公开评论。",
+            status: "running",
+            evidenceCount: 2
+          },
+          sources: [
+            {
+              id: "source-1",
+              platform: "Steam",
+              title: "Steam 玩家评测",
+              status: "covered",
+              itemCount: 2
+            },
+            {
+              id: "source-2",
+              platform: "论坛",
+              title: "社区讨论",
+              status: "failed",
+              itemCount: 0,
+              error: "暂时无法访问"
+            }
+          ],
+          canCancel: true
+        }}
+      />
+    );
+
+    expect(screen.getByText("Steam 玩家评测").parentElement?.textContent).toContain("已覆盖");
+    expect(screen.getByText("社区讨论").parentElement?.textContent).toContain("失败");
   });
 });

@@ -1,3 +1,4 @@
+import type { RefObject } from "react";
 import {
   Ban,
   CheckCircle2,
@@ -9,6 +10,8 @@ import {
   XCircle
 } from "lucide-react";
 import { Button } from "../../components/button.js";
+import { StatusBanner } from "../../components/status-banner.js";
+import { PageHeading } from "../../components/page-heading.js";
 import type {
   IdentityCandidateView,
   ResearchStageId,
@@ -25,6 +28,7 @@ const stageSequence: Array<{ id: ResearchStageId; label: string }> = [
 ];
 
 export function ResearchProgress(props: {
+  headingRef: RefObject<HTMLHeadingElement | null>;
   gameName: string;
   focus?: string;
   stage: ResearchStageView;
@@ -46,11 +50,11 @@ export function ResearchProgress(props: {
       <header className="flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <p className="m-0 text-sm font-semibold text-muted-foreground">风评研究进行中</p>
-          <h2 className="mt-2 break-words text-2xl font-semibold leading-tight sm:text-3xl">
+          <PageHeading ref={props.headingRef} className="mt-2">
             {props.gameName}
-          </h2>
+          </PageHeading>
           {props.focus ? (
-            <p className="mb-0 mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+            <p className="mb-0 mt-2 max-w-2xl break-words text-sm leading-6 text-muted-foreground">
               关注：{props.focus}
             </p>
           ) : null}
@@ -101,7 +105,7 @@ export function ResearchProgress(props: {
                   <div className="min-w-0 flex-1">
                     <strong className="block text-sm">{item.label}</strong>
                     {active ? (
-                      <span className="mt-1 block text-sm leading-5 text-muted-foreground">
+                      <span role="status" className="mt-1 block text-sm leading-5 text-muted-foreground">
                         {props.stage.message}
                       </span>
                     ) : null}
@@ -147,12 +151,7 @@ export function ResearchProgress(props: {
             </div>
           ) : null}
 
-          {props.error ? (
-            <div className="mt-6 flex gap-3 rounded-md border border-destructive/35 bg-destructive/10 p-4 text-sm text-destructive" role="alert">
-              <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
-              <span className="leading-6">{props.error}</span>
-            </div>
-          ) : null}
+          {props.error ? <StatusBanner className="mt-6" tone="error">{props.error}</StatusBanner> : null}
         </section>
 
         <aside aria-labelledby="source-status-heading" className="lg:border-l lg:border-border lg:pl-6">
@@ -174,7 +173,7 @@ export function ResearchProgress(props: {
                   <div className="min-w-0 flex-1">
                     <strong className="block break-words text-sm">{source.title}</strong>
                     <span className="mt-1 block text-xs text-muted-foreground">
-                      {source.platform} · {source.itemCount} 条
+                      {source.platform} · {source.itemCount} 条 · {sourceStatusLabel(source.status)}
                     </span>
                     {source.error ? (
                       <span className="mt-1 block break-words text-xs leading-5 text-destructive">
@@ -223,6 +222,14 @@ function SourceIcon(props: { status: SourceStatusView["status"] }) {
     return <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />;
   }
   return <Ban aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />;
+}
+
+function sourceStatusLabel(status: SourceStatusView["status"]): string {
+  return {
+    covered: "已覆盖",
+    failed: "失败",
+    excluded: "已排除"
+  }[status];
 }
 
 function stageStatusLabel(status: ResearchStageView["status"]): string {

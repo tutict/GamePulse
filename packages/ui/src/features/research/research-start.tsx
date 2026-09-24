@@ -1,12 +1,15 @@
-import { ArrowRight, CircleAlert, Clock3, FlaskConical, KeyRound, LoaderCircle } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { ArrowRight, Clock3, FlaskConical, KeyRound, LoaderCircle } from "lucide-react";
+import { useState, type FormEvent, type RefObject } from "react";
 import { Badge } from "../../components/badge.js";
 import { Button } from "../../components/button.js";
+import { StatusBanner } from "../../components/status-banner.js";
+import { PageHeading } from "../../components/page-heading.js";
 import { Input } from "../../components/input.js";
 import { Textarea } from "../../components/textarea.js";
 import type { ResearchHistoryItem } from "./types.js";
 
 export function ResearchStart(props: {
+  headingRef: RefObject<HTMLHeadingElement | null>;
   recent: ResearchHistoryItem[];
   mode: "fixture" | "live";
   credentialsReady: boolean;
@@ -44,23 +47,17 @@ export function ResearchStart(props: {
             <Badge variant="secondary">公开来源研究</Badge>
           )}
         </div>
-        <h2 className="mt-4 text-balance text-3xl font-semibold leading-tight tracking-normal sm:text-4xl">
+        <PageHeading ref={props.headingRef} className="mt-4 text-balance">
           开始游戏风评研究
-        </h2>
+        </PageHeading>
       </header>
 
-      {props.error ? (
-        <div className="mt-5 flex gap-3 rounded-md border border-destructive/35 bg-destructive/10 p-4 text-sm text-destructive" role="alert">
-          <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
-          <span className="leading-6">{props.error}</span>
-        </div>
-      ) : null}
+      {props.error ? <StatusBanner className="mt-5" tone="error">{props.error}</StatusBanner> : null}
       <form className="grid gap-5 py-6 sm:py-8" onSubmit={handleSubmit}>
         <label className="grid gap-2 text-sm font-semibold" htmlFor="research-game-name">
           游戏名称
           <Input
             autoComplete="off"
-            autoFocus
             className="h-11 bg-card text-base"
             id="research-game-name"
             maxLength={120}
@@ -137,8 +134,8 @@ export function ResearchStart(props: {
                 type="button"
               >
                 <div className="min-w-0 flex-1">
-                  <strong className="block truncate text-sm">{item.gameName}</strong>
-                  <span className="mt-1 block truncate text-xs text-muted-foreground">
+                  <strong className="block break-words text-sm">{item.gameName}</strong>
+                  <span className="mt-1 block whitespace-normal break-words text-sm text-muted-foreground">
                     {item.verdict ?? statusLabel(item.status)}
                   </span>
                 </div>
