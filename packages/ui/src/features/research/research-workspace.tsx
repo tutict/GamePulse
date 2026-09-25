@@ -1,5 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react";
-import { FileText, History, Radar, Settings } from "lucide-react";
+import { History, Radar, Settings } from "lucide-react";
+import { GamePulseMark } from "../../components/gamepulse-mark.js";
 import { AppShell } from "../../components/app-shell.js";
 import { ResearchHistory } from "./research-history.js";
 import { ResearchProgress } from "./research-progress.js";
@@ -46,7 +47,7 @@ export function ResearchWorkspace(props: ResearchWorkspaceProps) {
       activeNavigationId={activeNavigationId}
       brand={
         <div className="grid size-10 place-items-center rounded-md bg-accent text-accent-foreground">
-          <FileText aria-hidden="true" className="size-5" />
+          <GamePulseMark aria-hidden="true" className="size-7" />
         </div>
       }
       navigation={navigation}

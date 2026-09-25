@@ -16,3 +16,4 @@ export * from "./features/research/research-history.js";
 export * from "./features/research/research-settings.js";
 export * from "./features/research/research-workspace.js";
 export * from "./features/theme/use-theme.js";
+export * from "./components/gamepulse-mark.js";
